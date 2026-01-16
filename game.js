@@ -321,11 +321,11 @@ class GameWorld {
     this.keys = { up: false, down: false, left: false, right: false };
     this.selectedItem = null;
     this.messageTimeout = null;
-    this.entranceTile = { x: 0, y: -6 };
-    this.exitTile = { x: 0, y: -4 };
-    this.dropoffStop = { x: 2, y: -6 };
-    this.pickupStop = { x: 2, y: -4 };
-    this.roadBounds = { minY: -10, maxY: 10 };
+    this.entranceTile = { x: -6, y: -10 };
+    this.exitTile = { x: -6, y: -8 };
+    this.dropoffStop = { x: -8, y: -10 };
+    this.pickupStop = { x: -7, y: -8 };
+    this.roadBounds = { minY: -14, maxY: -2 };
     this.mapBounds = { minX: -12, maxX: 12, minY: -12, maxY: 12 };
     this.carSprites = carSprites;
     this.terrainSprites = terrainSprites;
@@ -348,14 +348,14 @@ class GameWorld {
 
   createPathTiles() {
     const tiles = new Set();
-    for (let y = -8; y <= 8; y++) {
-      tiles.add(this.tileKey(0, y));
+    for (let y = -14; y <= 2; y++) {
+      tiles.add(this.tileKey(-6, y));
     }
-    for (let x = -5; x <= 5; x++) {
-      tiles.add(this.tileKey(x, 0));
+    for (let x = -11; x <= -1; x++) {
+      tiles.add(this.tileKey(x, -6));
     }
-    for (let x = -3; x <= 3; x++) {
-      tiles.add(this.tileKey(x, 4));
+    for (let x = -9; x <= -3; x++) {
+      tiles.add(this.tileKey(x, -2));
     }
     return tiles;
   }
@@ -364,6 +364,7 @@ class GameWorld {
     const tiles = new Set();
     for (let y = this.roadBounds.minY; y <= this.roadBounds.maxY; y++) {
       tiles.add(this.tileKey(this.dropoffStop.x, y));
+      tiles.add(this.tileKey(this.pickupStop.x, y));
     }
     return tiles;
   }
@@ -887,7 +888,7 @@ function initGame() {
   carSprites.police.src = 'assets/kenney_car-kit/Previews/police.png';
   carSprites.ambulance.src = 'assets/kenney_car-kit/Previews/ambulance.png';
   terrainSprites.ground.src = 'assets/kenney_nature-kit/Isometric/ground_grass_NW.png';
-  terrainSprites.road.src = 'assets/kenney_nature-kit/Isometric/bridge_center_stone_SW.png';
+  terrainSprites.road.src = 'assets/kenney_nature-kit/Isometric/bridge_center_stone_NE.png';
   terrainSprites.path.src = 'assets/kenney_nature-kit/Isometric/ground_pathOpen_SW.png';
   const ui = {
     money: document.getElementById('money'),
