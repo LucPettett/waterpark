@@ -1,0 +1,200 @@
+* {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: Arial, sans-serif;
+            overflow: hidden;
+            background: #87CEEB;
+        }
+        
+        #gameContainer {
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        #mainArea {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+            background: linear-gradient(to bottom, #87CEEB 0%, #90EE90 100%);
+        }
+        
+        #canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+        
+        #stats {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 10px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            min-width: 150px;
+        }
+        
+        .stat {
+            margin: 5px 0;
+            font-size: 14px;
+            font-weight: bold;
+        }
+        
+        #message {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 200, 0, 0.9);
+            color: white;
+            padding: 15px 30px;
+            border-radius: 8px;
+            font-weight: bold;
+            display: none;
+            z-index: 100;
+            font-size: 18px;
+        }
+        
+        #bottomPanel {
+            height: 120px;
+            background: rgba(50, 50, 50, 0.95);
+            display: flex;
+            padding: 10px;
+            gap: 10px;
+            overflow-x: auto;
+            overflow-y: hidden;
+        }
+        
+        .shopItem {
+            min-width: 100px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 8px;
+            padding: 8px;
+            color: white;
+            text-align: center;
+            cursor: pointer;
+            transition: transform 0.2s;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+        
+        .shopItem.food {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        }
+
+        .shopItem.facility {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+        }
+
+        .shopItem.pet {
+            background: linear-gradient(135deg, #ffeaa7 0%, #fdcb6e 100%);
+        }
+
+        .shopItem.service {
+            background: linear-gradient(135deg, #a29bfe 0%, #6c5ce7 100%);
+        }
+
+        .shopItem.internet {
+            background: linear-gradient(135deg, #00d2ff 0%, #3a7bd5 100%);
+        }
+
+        .shopItem.transport {
+            background: linear-gradient(135deg, #fc5c7d 0%, #6a82fb 100%);
+        }
+        
+.shopItem:hover {
+            transform: scale(1.05);
+        }
+
+.shopItem.selected {
+            outline: 3px solid #ffd700;
+            box-shadow: 0 0 12px rgba(255, 215, 0, 0.7);
+        }
+        
+        .shopItem.disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .itemName {
+            font-size: 12px;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        
+        .itemCost {
+            font-size: 11px;
+            color: #FFD700;
+        }
+        
+        .itemPrice {
+            font-size: 10px;
+            color: #90EE90;
+        }
+
+        .itemPetPrice {
+            font-size: 9px;
+            color: #FFB6C1;
+            margin-top: 2px;
+        }
+        
+        #joystick {
+            position: absolute;
+            bottom: 140px;
+            right: 20px;
+            width: 120px;
+            height: 120px;
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border: 3px solid rgba(255, 255, 255, 0.5);
+        }
+        
+        #joystickKnob {
+            position: absolute;
+            width: 50px;
+            height: 50px;
+            background: rgba(255, 255, 255, 0.8);
+            border-radius: 50%;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            cursor: pointer;
+            border: 2px solid white;
+        }
+
+        #tabs {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 5px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            display: flex;
+            gap: 5px;
+            flex-wrap: wrap;
+            max-width: 380px;
+        }
+
+        .tab {
+            padding: 8px 12px;
+            background: #ddd;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 12px;
+        }
+
+        .tab.active {
+            background: #667eea;
+            color: white;
+        }
