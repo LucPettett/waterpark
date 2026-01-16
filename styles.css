@@ -7,7 +7,7 @@
         body {
             font-family: Arial, sans-serif;
             overflow: hidden;
-            background: #87CEEB;
+            background: transparent;
         }
         
         #gameContainer {
@@ -21,7 +21,7 @@
             flex: 1;
             position: relative;
             overflow: hidden;
-            background: linear-gradient(to bottom, #87CEEB 0%, #90EE90 100%);
+            background: transparent;
         }
         
         #canvas {
@@ -68,39 +68,40 @@
             right: 10px;
             width: 220px;
             max-height: 240px;
-            background: rgba(255, 255, 255, 0.9);
-            border-radius: 10px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            background: transparent;
+            border-radius: 0;
+            box-shadow: none;
             display: flex;
             flex-direction: column;
             overflow: hidden;
         }
 
         .chatHeader {
-            background: #667eea;
-            color: white;
-            padding: 6px 10px;
-            font-size: 12px;
+            background: transparent;
+            color: rgba(255, 255, 255, 0.9);
+            padding: 2px 2px 6px 2px;
+            font-size: 11px;
             font-weight: bold;
             text-transform: uppercase;
-            letter-spacing: 0.5px;
+            letter-spacing: 1.2px;
         }
 
         #chatMessages {
-            padding: 8px 10px;
+            padding: 6px 0 0 0;
             display: flex;
             flex-direction: column;
             gap: 6px;
             overflow-y: auto;
             font-size: 12px;
             max-height: 200px;
+            color: #f7f7f7;
         }
 
         .chatMessage {
-            background: rgba(103, 126, 234, 0.12);
-            border-radius: 8px;
+            background: rgba(8, 12, 10, 0.55);
+            border-radius: 6px;
             padding: 6px 8px;
-            color: #1f2a44;
+            color: #f7f7f7;
         }
         
         #bottomPanel {
@@ -197,13 +198,15 @@
         
         #joystick {
             position: absolute;
-            bottom: 190px;
+            bottom: 20px;
             right: 20px;
             width: 120px;
             height: 120px;
             background: rgba(255, 255, 255, 0.3);
             border-radius: 50%;
             border: 3px solid rgba(255, 255, 255, 0.5);
+            z-index: 20;
+            touch-action: none;
         }
         
         #joystickKnob {
@@ -217,6 +220,7 @@
             transform: translate(-50%, -50%);
             cursor: pointer;
             border: 2px solid white;
+            touch-action: none;
         }
 
         #tabs {

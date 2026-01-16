@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="styles.css">
 </head>
@@ -13,11 +14,15 @@
                 <div class="stat">👥 Visitors: <span id="visitors">0</span></div>
                 <div class="stat">🐕 Pets: <span id="pets">0</span></div>
                 <div class="stat">🎢 In Park: <span id="active">0</span></div>
+                <div class="stat">⭐ Google: <span id="reviewScore">0.0</span> <span id="reviewStars">☆☆☆☆☆</span></div>
             </div>
             <div id="message"></div>
             <div id="chatPanel">
                 <div class="chatHeader">Park Log</div>
                 <div id="chatMessages"></div>
+            </div>
+            <div id="joystick">
+                <div id="joystickKnob"></div>
             </div>
         </div>
         
@@ -421,9 +426,6 @@
             </div>
         </div>
         
-        <div id="joystick">
-            <div id="joystickKnob"></div>
-        </div>
     </div>
     <script src="game.js" defer></script>
 </body>

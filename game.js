@@ -311,6 +311,9 @@ class GameWorld {
     this.totalPets = 0;
     this.activeVisitors = 0;
     this.activePets = 0;
+    this.completedVisits = 0;
+    this.reviewScore = 0;
+    this.reviewRidesPerStar = 40;
     this.buildings = [];
     this.agents = [];
     this.cars = [];
@@ -378,6 +381,24 @@ class GameWorld {
   drawTileImage(image, tileX, tileY) {
     if (!image?.complete || image.naturalWidth === 0) return;
     const screen = this.isoToScreen(tileX, tileY);
+    const trim = image.trim;
+    if (trim) {
+      const destW = this.tileSize;
+      const scale = destW / trim.width;
+      const destH = trim.height * scale;
+      this.ctx.drawImage(
+        image,
+        trim.x,
+        trim.y,
+        trim.width,
+        trim.height,
+        screen.x - destW / 2,
+        screen.y + this.tileHeight / 2 - destH,
+        destW,
+        destH
+      );
+      return;
+    }
     this.ctx.drawImage(
       image,
       screen.x - this.tileSize / 2,
@@ -387,8 +408,38 @@ class GameWorld {
     );
   }
 
-  drawTileLayer(drawFn) {
-    const { minX, maxX, minY, maxY } = this.mapBounds;
+  getVisibleTileBounds(padding = 3) {
+    const points = [
+      { x: 0, y: 0 },
+      { x: this.canvas.width, y: 0 },
+      { x: 0, y: this.canvas.height },
+      { x: this.canvas.width, y: this.canvas.height },
+      { x: this.canvas.width / 2, y: 0 },
+      { x: this.canvas.width / 2, y: this.canvas.height },
+      { x: 0, y: this.canvas.height / 2 },
+      { x: this.canvas.width, y: this.canvas.height / 2 }
+    ];
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    points.forEach((point) => {
+      const world = this.screenToWorld(point.x, point.y);
+      minX = Math.min(minX, world.x);
+      maxX = Math.max(maxX, world.x);
+      minY = Math.min(minY, world.y);
+      maxY = Math.max(maxY, world.y);
+    });
+    return {
+      minX: Math.floor(minX) - padding,
+      maxX: Math.ceil(maxX) + padding,
+      minY: Math.floor(minY) - padding,
+      maxY: Math.ceil(maxY) + padding
+    };
+  }
+
+  drawTileLayer(drawFn, bounds = this.getVisibleTileBounds()) {
+    const { minX, maxX, minY, maxY } = bounds;
     for (let sum = minX + minY; sum <= maxX + maxY; sum++) {
       for (let x = minX; x <= maxX; x++) {
         const y = sum - x;
@@ -509,13 +560,7 @@ class GameWorld {
   }
 
   showMessage(text) {
-    if (!this.ui.message) return;
-    this.ui.message.textContent = text;
-    this.ui.message.style.display = 'block';
-    clearTimeout(this.messageTimeout);
-    this.messageTimeout = setTimeout(() => {
-      this.ui.message.style.display = 'none';
-    }, 1500);
+    this.addChatMessage(text);
   }
 
   addChatMessage(text) {
@@ -535,6 +580,42 @@ class GameWorld {
     this.ui.visitors.textContent = this.totalVisitors;
     this.ui.pets.textContent = this.totalPets;
     this.ui.active.textContent = this.activeVisitors + this.activePets;
+    const reviewScore = this.calculateReviewScore();
+    if (this.ui.reviewScore) {
+      this.ui.reviewScore.textContent = reviewScore.toFixed(1);
+    }
+    if (this.ui.reviewStars) {
+      this.ui.reviewStars.textContent = this.formatStars(reviewScore);
+    }
+  }
+
+  formatStars(score) {
+    const fullStars = Math.floor(score);
+    const emptyStars = Math.max(0, 5 - fullStars);
+    return `${'★'.repeat(fullStars)}${'☆'.repeat(emptyStars)}`;
+  }
+
+  getPaidRideCount() {
+    return this.buildings.filter((building) => building.price > 0 || building.petPrice > 0).length;
+  }
+
+  getReviewCap() {
+    const paidRides = this.buildings.filter((building) => building.price > 0 || building.petPrice > 0);
+    const uniqueTypes = new Set(paidRides.map((building) => building.type)).size;
+    const baseScore = Math.floor(Math.sqrt(paidRides.length + uniqueTypes));
+    return Math.min(5, baseScore);
+  }
+
+  calculateReviewScore() {
+    const paidRideCount = this.getPaidRideCount();
+    if (paidRideCount === 0) {
+      this.reviewScore = 0;
+      return this.reviewScore;
+    }
+    const cap = this.getReviewCap();
+    const rideScore = this.completedVisits / this.reviewRidesPerStar;
+    this.reviewScore = Math.max(0, Math.min(cap, rideScore, 5));
+    return this.reviewScore;
   }
 
   adjustCamera(delta) {
@@ -754,6 +835,7 @@ class GameWorld {
     const revenue = agent.isPet ? building.petPrice : building.price;
     if (revenue > 0) {
       this.money += revenue;
+      this.completedVisits += 1;
       const label = agent.isPet ? '🐾 Pet visit' : '🎟️ Visit';
       this.addChatMessage(`${label} +$${revenue.toFixed(0)}`);
     }
@@ -770,22 +852,23 @@ class GameWorld {
   drawBackground() {
     const { ctx } = this;
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    const bounds = this.getVisibleTileBounds();
 
     this.drawTileLayer((tileX, tileY) => {
       this.drawTileImage(this.terrainSprites.ground, tileX, tileY);
-    });
+    }, bounds);
 
     this.drawTileLayer((tileX, tileY) => {
       if (this.pathTiles.has(this.tileKey(tileX, tileY))) {
         this.drawTileImage(this.terrainSprites.path, tileX, tileY);
       }
-    });
+    }, bounds);
 
     this.drawTileLayer((tileX, tileY) => {
       if (this.roadTiles.has(this.tileKey(tileX, tileY))) {
         this.drawTileImage(this.terrainSprites.road, tileX, tileY);
       }
-    });
+    }, bounds);
   }
 
   drawBuildings() {
@@ -862,6 +945,44 @@ class GameWorld {
   }
 }
 
+function calculateSpriteTrim(image) {
+  const canvas = document.createElement('canvas');
+  canvas.width = image.naturalWidth;
+  canvas.height = image.naturalHeight;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  ctx.drawImage(image, 0, 0);
+  const { data, width, height } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  let minX = width;
+  let minY = height;
+  let maxX = -1;
+  let maxY = -1;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const alpha = data[(y * width + x) * 4 + 3];
+      if (alpha === 0) continue;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+  }
+  if (maxX === -1) return null;
+  return {
+    x: minX,
+    y: minY,
+    width: maxX - minX + 1,
+    height: maxY - minY + 1
+  };
+}
+
+function applySpriteTrim(image) {
+  image.addEventListener('load', () => {
+    const trim = calculateSpriteTrim(image);
+    if (trim) image.trim = trim;
+  });
+}
+
 function initGame() {
   const canvas = document.getElementById('canvas');
   const ctx = canvas.getContext('2d');
@@ -880,6 +1001,10 @@ function initGame() {
     path: new Image()
   };
 
+  applySpriteTrim(terrainSprites.ground);
+  applySpriteTrim(terrainSprites.road);
+  applySpriteTrim(terrainSprites.path);
+
   carSprites.sedan.src = 'assets/kenney_car-kit/Previews/sedan.png';
   carSprites.suv.src = 'assets/kenney_car-kit/Previews/suv.png';
   carSprites.taxi.src = 'assets/kenney_car-kit/Previews/taxi.png';
@@ -887,7 +1012,7 @@ function initGame() {
   carSprites.truck.src = 'assets/kenney_car-kit/Previews/truck.png';
   carSprites.police.src = 'assets/kenney_car-kit/Previews/police.png';
   carSprites.ambulance.src = 'assets/kenney_car-kit/Previews/ambulance.png';
-  terrainSprites.ground.src = 'assets/kenney_nature-kit/Isometric/ground_grass_NW.png';
+  terrainSprites.ground.src = 'assets/kenney_nature-kit/Isometric/ground_grass_NE.png';
   terrainSprites.road.src = 'assets/kenney_nature-kit/Isometric/bridge_center_stone_NE.png';
   terrainSprites.path.src = 'assets/kenney_nature-kit/Isometric/ground_pathOpen_SW.png';
   const ui = {
