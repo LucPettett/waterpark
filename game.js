@@ -158,6 +158,75 @@ const EMOJI_MAP = {
   trainstation: '🚂'
 };
 
+const SPRITE_CONFIG = {
+  tileSize: 16,
+  margin: 1,
+  imagePath: 'kenney_roguelike-rpg-pack/Spritesheet/roguelikeSheet_transparent.png'
+};
+
+const CATEGORY_SPRITES = {
+  attraction: [{ x: 1, y: 6 }, { x: 4, y: 6 }, { x: 8, y: 6 }, { x: 12, y: 6 }],
+  food: [{ x: 10, y: 15 }, { x: 11, y: 15 }, { x: 12, y: 15 }],
+  facility: [{ x: 0, y: 9 }, { x: 1, y: 9 }, { x: 2, y: 9 }],
+  pet: [{ x: 6, y: 15 }, { x: 7, y: 15 }, { x: 8, y: 15 }],
+  service: [{ x: 2, y: 6 }, { x: 6, y: 6 }, { x: 9, y: 6 }, { x: 14, y: 6 }],
+  internet: [{ x: 13, y: 15 }, { x: 14, y: 15 }, { x: 15, y: 15 }],
+  transport: [{ x: 12, y: 9 }, { x: 13, y: 9 }]
+};
+
+const WORLD_SPRITES = {
+  grass: { x: 1, y: 1 },
+  grassAlt: { x: 2, y: 1 },
+  dirt: { x: 4, y: 1 },
+  road: { x: 6, y: 1 },
+  fence: { x: 8, y: 3 },
+  entrance: { x: 3, y: 9 },
+  exit: { x: 4, y: 9 },
+  car: { x: 10, y: 9 },
+  visitor: { x: 1, y: 18 },
+  pet: { x: 5, y: 18 }
+};
+
+const hashString = (value) => {
+  let hash = 0;
+  for (let i = 0; i < value.length; i++) {
+    hash = (hash << 5) - hash + value.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+};
+
+class SpriteSheet {
+  constructor({ imagePath, tileSize, margin }) {
+    this.image = new Image();
+    this.tileSize = tileSize;
+    this.margin = margin;
+    this.ready = false;
+    this.image.onload = () => {
+      this.ready = true;
+    };
+    this.image.src = imagePath;
+  }
+
+  draw(ctx, tileX, tileY, x, y, size) {
+    if (!this.ready) return false;
+    const sourceX = this.margin + tileX * (this.tileSize + this.margin);
+    const sourceY = this.margin + tileY * (this.tileSize + this.margin);
+    ctx.drawImage(
+      this.image,
+      sourceX,
+      sourceY,
+      this.tileSize,
+      this.tileSize,
+      x,
+      y,
+      size,
+      size
+    );
+    return true;
+  }
+}
+
 class Building {
   constructor({ type, x, y, cost, price, petPrice, category }) {
     this.type = type;
@@ -220,12 +289,53 @@ class Agent {
   }
 }
 
+class Car {
+  constructor({ x, y, speed, passengers }) {
+    this.x = x;
+    this.y = y;
+    this.speed = speed;
+    this.passengers = passengers;
+    this.state = 'arriving';
+    this.hasDropped = false;
+  }
+
+  update(delta, world) {
+    if (this.state === 'arriving') {
+      const targetX = world.entrance.x + world.entrance.width / 2;
+      const dx = targetX - this.x;
+      if (Math.abs(dx) > 2) {
+        this.x += Math.sign(dx) * this.speed * delta;
+      } else {
+        this.state = 'dropping';
+      }
+    }
+
+    if (this.state === 'dropping' && !this.hasDropped) {
+      world.spawnVisitors(this.passengers);
+      this.hasDropped = true;
+      this.state = 'leaving';
+    }
+
+    if (this.state === 'leaving') {
+      this.x += this.speed * delta;
+      if (this.x > world.worldBounds.right + 200) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+}
+
 class GameWorld {
-  constructor({ canvas, ctx, ui }) {
+  constructor({ canvas, ctx, ui, spriteSheet }) {
     this.canvas = canvas;
     this.ctx = ctx;
     this.ui = ui;
+    this.spriteSheet = spriteSheet;
     this.camera = { x: 0, y: 0 };
+    this.joystick = { x: 0, y: 0 };
+    this.cameraSpeed = 10;
     this.money = 500;
     this.totalVisitors = 0;
     this.totalPets = 0;
@@ -233,14 +343,16 @@ class GameWorld {
     this.activePets = 0;
     this.buildings = [];
     this.agents = [];
+    this.cars = [];
     this.lastSpawn = 0;
-    this.spawnInterval = 2400;
+    this.carSpawnInterval = 3200;
     this.keys = { up: false, down: false, left: false, right: false };
     this.selectedItem = null;
     this.messageTimeout = null;
     this.entrance = { x: 300, y: 80, width: 80, height: 50 };
     this.exit = { x: 520, y: 80, width: 80, height: 50 };
     this.worldBounds = { left: -400, right: 1600, top: -200, bottom: 1200 };
+    this.roadY = 60;
   }
 
   setSelectedItem(item) {
@@ -265,11 +377,14 @@ class GameWorld {
   }
 
   adjustCamera(delta) {
-    const speed = 0.35 * delta * 16;
-    if (this.keys.left) this.camera.x -= speed * 10;
-    if (this.keys.right) this.camera.x += speed * 10;
-    if (this.keys.up) this.camera.y -= speed * 10;
-    if (this.keys.down) this.camera.y += speed * 10;
+    const speed = this.cameraSpeed * delta;
+    const keyboardX = (this.keys.right ? 1 : 0) - (this.keys.left ? 1 : 0);
+    const keyboardY = (this.keys.down ? 1 : 0) - (this.keys.up ? 1 : 0);
+    const moveX = keyboardX + this.joystick.x;
+    const moveY = keyboardY + this.joystick.y;
+
+    this.camera.x += moveX * speed;
+    this.camera.y += moveY * speed;
   }
 
   screenToWorld(x, y) {
@@ -323,11 +438,7 @@ class GameWorld {
     return eligible[Math.floor(Math.random() * eligible.length)];
   }
 
-  spawnAgents(time) {
-    if (time - this.lastSpawn < this.spawnInterval) return;
-    this.lastSpawn = time;
-
-    const visitors = Math.floor(Math.random() * 3) + 2;
+  spawnVisitors({ visitors, pets }) {
     for (let i = 0; i < visitors; i++) {
       const agent = new Agent({
         x: this.entrance.x + Math.random() * this.entrance.width,
@@ -340,20 +451,36 @@ class GameWorld {
     }
     this.activeVisitors += visitors;
 
-    if (Math.random() > 0.6) {
-      const pets = Math.floor(Math.random() * 2) + 1;
-      for (let i = 0; i < pets; i++) {
-        const pet = new Agent({
-          x: this.entrance.x + Math.random() * this.entrance.width,
-          y: this.entrance.y + this.entrance.height + Math.random() * 20,
-          isPet: true,
-          speed: 0.7 + Math.random() * 0.4
-        });
-        this.agents.push(pet);
-        this.totalPets += 1;
-      }
-      this.activePets += pets;
+    for (let i = 0; i < pets; i++) {
+      const pet = new Agent({
+        x: this.entrance.x + Math.random() * this.entrance.width,
+        y: this.entrance.y + this.entrance.height + Math.random() * 20,
+        isPet: true,
+        speed: 0.7 + Math.random() * 0.4
+      });
+      this.agents.push(pet);
+      this.totalPets += 1;
     }
+    this.activePets += pets;
+  }
+
+  createPassengerBatch() {
+    const visitors = Math.floor(Math.random() * 3) + 2;
+    const pets = Math.random() > 0.6 ? Math.floor(Math.random() * 2) + 1 : 0;
+    return { visitors, pets };
+  }
+
+  spawnCars(time) {
+    if (time - this.lastSpawn < this.carSpawnInterval) return;
+    this.lastSpawn = time;
+
+    const car = new Car({
+      x: this.worldBounds.left - 120,
+      y: this.roadY,
+      speed: 1.2 + Math.random() * 0.6,
+      passengers: this.createPassengerBatch()
+    });
+    this.cars.push(car);
   }
 
   collectRevenue(agent, building) {
@@ -368,7 +495,8 @@ class GameWorld {
 
   update(time, delta) {
     this.adjustCamera(delta);
-    this.spawnAgents(time);
+    this.spawnCars(time);
+    this.cars = this.cars.filter((car) => !car.update(delta, this));
     this.agents = this.agents.filter((agent) => !agent.update(delta, this));
     this.updateStats();
   }
@@ -381,18 +509,57 @@ class GameWorld {
     ctx.fillStyle = '#90EE90';
     ctx.fillRect(0, this.canvas.height * 0.3, this.canvas.width, this.canvas.height);
 
-    ctx.fillStyle = '#6b4f2a';
-    const roadY = 50 - this.camera.y;
-    ctx.fillRect(-this.camera.x, roadY, this.canvas.width + this.camera.x + 400, 40);
+    if (this.spriteSheet.ready) {
+      const tile = 48;
+      const horizon = this.canvas.height * 0.3;
+      const startX = Math.floor(this.camera.x / tile) * tile;
+      const startY = Math.floor((this.camera.y + horizon) / tile) * tile;
+      for (let x = startX; x < this.camera.x + this.canvas.width + tile; x += tile) {
+        for (let y = startY; y < this.camera.y + this.canvas.height + tile; y += tile) {
+          const sprite = (x + y) % (tile * 2) === 0 ? WORLD_SPRITES.grass : WORLD_SPRITES.grassAlt;
+          this.spriteSheet.draw(ctx, sprite.x, sprite.y, x - this.camera.x, y - this.camera.y, tile);
+        }
+      }
+    }
 
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(this.entrance.x - this.camera.x, this.entrance.y - this.camera.y, this.entrance.width, this.entrance.height);
-    ctx.fillRect(this.exit.x - this.camera.x, this.exit.y - this.camera.y, this.exit.width, this.exit.height);
+    if (this.spriteSheet.ready) {
+      const roadWidth = this.canvas.width + this.camera.x + 400;
+      const roadY = this.roadY - this.camera.y;
+      const tileSize = 32;
+      for (let x = -this.camera.x - 200; x < roadWidth; x += tileSize) {
+        this.spriteSheet.draw(ctx, WORLD_SPRITES.road.x, WORLD_SPRITES.road.y, x, roadY, tileSize);
+      }
+    } else {
+      ctx.fillStyle = '#6b4f2a';
+      const roadY = this.roadY - this.camera.y;
+      ctx.fillRect(-this.camera.x, roadY, this.canvas.width + this.camera.x + 400, 40);
+    }
+
+    const entranceX = this.entrance.x - this.camera.x;
+    const entranceY = this.entrance.y - this.camera.y;
+    const exitX = this.exit.x - this.camera.x;
+    const exitY = this.exit.y - this.camera.y;
+
+    if (this.spriteSheet.ready) {
+      this.spriteSheet.draw(ctx, WORLD_SPRITES.entrance.x, WORLD_SPRITES.entrance.y, entranceX, entranceY, this.entrance.width);
+      this.spriteSheet.draw(ctx, WORLD_SPRITES.exit.x, WORLD_SPRITES.exit.y, exitX, exitY, this.exit.width);
+    } else {
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(entranceX, entranceY, this.entrance.width, this.entrance.height);
+      ctx.fillRect(exitX, exitY, this.exit.width, this.exit.height);
+    }
 
     ctx.fillStyle = '#333';
     ctx.font = 'bold 14px Arial';
-    ctx.fillText('Entrance', this.entrance.x - this.camera.x, this.entrance.y - this.camera.y - 8);
-    ctx.fillText('Exit', this.exit.x - this.camera.x, this.exit.y - this.camera.y - 8);
+    ctx.fillText('Entrance', entranceX, entranceY - 8);
+    ctx.fillText('Exit', exitX, exitY - 8);
+  }
+
+  getSpriteForBuilding(building) {
+    const options = CATEGORY_SPRITES[building.category];
+    if (!options || !options.length) return WORLD_SPRITES.grassAlt;
+    const index = hashString(building.type) % options.length;
+    return options[index];
   }
 
   drawBuildings() {
@@ -403,29 +570,79 @@ class GameWorld {
       const x = building.x - this.camera.x;
       const y = building.y - this.camera.y;
 
-      ctx.fillStyle = color;
-      ctx.fillRect(x, y, building.width, building.height);
-      ctx.strokeStyle = '#fff';
-      ctx.lineWidth = building.category === 'service' || building.category === 'transport' ? 3 : 2;
-      ctx.strokeRect(x, y, building.width, building.height);
+      if (this.spriteSheet.ready) {
+        const tileSize = 32;
+        const tilesX = Math.ceil(building.width / tileSize);
+        const tilesY = Math.ceil(building.height / tileSize);
+        const sprite = this.getSpriteForBuilding(building);
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(x, y, building.width, building.height);
+        ctx.clip();
+        for (let tx = 0; tx < tilesX; tx++) {
+          for (let ty = 0; ty < tilesY; ty++) {
+            this.spriteSheet.draw(
+              ctx,
+              sprite.x,
+              sprite.y,
+              x + tx * tileSize,
+              y + ty * tileSize,
+              tileSize
+            );
+          }
+        }
+        ctx.restore();
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+        ctx.lineWidth = building.category === 'service' || building.category === 'transport' ? 3 : 2;
+        ctx.strokeRect(x, y, building.width, building.height);
+      } else {
+        ctx.fillStyle = color;
+        ctx.fillRect(x, y, building.width, building.height);
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = building.category === 'service' || building.category === 'transport' ? 3 : 2;
+        ctx.strokeRect(x, y, building.width, building.height);
 
-      ctx.fillStyle = '#222';
-      const emoji = EMOJI_MAP[building.type] || '🏖️';
-      const fontSize = building.category === 'service' ? 36 : building.category === 'transport' ? 44 : 28;
-      ctx.font = `${fontSize}px Arial`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(emoji, x + building.width / 2, y + building.height / 2);
+        ctx.fillStyle = '#222';
+        const emoji = EMOJI_MAP[building.type] || '🏖️';
+        const fontSize = building.category === 'service' ? 36 : building.category === 'transport' ? 44 : 28;
+        ctx.font = `${fontSize}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(emoji, x + building.width / 2, y + building.height / 2);
+      }
     });
   }
 
   drawAgents() {
     const { ctx } = this;
     this.agents.forEach((agent) => {
-      ctx.font = '18px Arial';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(agent.emoji, agent.x - this.camera.x, agent.y - this.camera.y);
+      const x = agent.x - this.camera.x;
+      const y = agent.y - this.camera.y;
+      if (this.spriteSheet.ready) {
+        const sprite = agent.isPet ? WORLD_SPRITES.pet : WORLD_SPRITES.visitor;
+        this.spriteSheet.draw(ctx, sprite.x, sprite.y, x - 12, y - 12, 24);
+      } else {
+        ctx.font = '18px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(agent.emoji, x, y);
+      }
+    });
+  }
+
+  drawCars() {
+    const { ctx } = this;
+    this.cars.forEach((car) => {
+      const x = car.x - this.camera.x;
+      const y = car.y - this.camera.y;
+      if (this.spriteSheet.ready) {
+        this.spriteSheet.draw(ctx, WORLD_SPRITES.car.x, WORLD_SPRITES.car.y, x - 16, y - 8, 32);
+      } else {
+        ctx.fillStyle = '#222';
+        ctx.fillRect(x - 18, y - 10, 36, 20);
+        ctx.fillStyle = '#ffcc00';
+        ctx.fillRect(x - 10, y - 6, 20, 12);
+      }
     });
   }
 
@@ -438,26 +655,50 @@ class GameWorld {
     const mouse = this.ui.mouse;
     if (!mouse) return;
 
-    const colorMap = CATEGORY_COLORS[category] || {};
-    const color = colorMap[type] || CATEGORY_CONFIG[category]?.color || '#4f8cff';
     ctx.save();
-    ctx.globalAlpha = 0.5;
-    ctx.fillStyle = color;
-    ctx.fillRect(mouse.x - ghostSize / 2, mouse.y - ghostSize / 2, ghostSize, ghostSize);
+    ctx.globalAlpha = 0.6;
+    if (this.spriteSheet.ready) {
+      const sprite = this.getSpriteForBuilding({ type, category });
+      const tileSize = 32;
+      const tilesX = Math.ceil(ghostSize / tileSize);
+      const tilesY = Math.ceil(ghostSize / tileSize);
+      ctx.beginPath();
+      ctx.rect(mouse.x - ghostSize / 2, mouse.y - ghostSize / 2, ghostSize, ghostSize);
+      ctx.clip();
+      for (let tx = 0; tx < tilesX; tx++) {
+        for (let ty = 0; ty < tilesY; ty++) {
+          this.spriteSheet.draw(
+            ctx,
+            sprite.x,
+            sprite.y,
+            mouse.x - ghostSize / 2 + tx * tileSize,
+            mouse.y - ghostSize / 2 + ty * tileSize,
+            tileSize
+          );
+        }
+      }
+    } else {
+      const colorMap = CATEGORY_COLORS[category] || {};
+      const color = colorMap[type] || CATEGORY_CONFIG[category]?.color || '#4f8cff';
+      ctx.fillStyle = color;
+      ctx.fillRect(mouse.x - ghostSize / 2, mouse.y - ghostSize / 2, ghostSize, ghostSize);
+    }
     ctx.restore();
   }
 
   render() {
     this.drawBackground();
+    this.drawCars();
     this.drawBuildings();
     this.drawAgents();
     this.drawGhost();
   }
 }
 
-function initGame() {
+async function initGame() {
   const canvas = document.getElementById('canvas');
   const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
   const ui = {
     money: document.getElementById('money'),
     visitors: document.getElementById('visitors'),
@@ -468,7 +709,8 @@ function initGame() {
     mouse: null
   };
 
-  const world = new GameWorld({ canvas, ctx, ui });
+  const spriteSheet = new SpriteSheet(SPRITE_CONFIG);
+  const world = new GameWorld({ canvas, ctx, ui, spriteSheet });
 
   const resizeCanvas = () => {
     const height = window.innerHeight - ui.bottomPanel.offsetHeight;
@@ -605,10 +847,7 @@ function setupJoystick(world) {
 
   const resetKnob = () => {
     knob.style.transform = 'translate(-50%, -50%)';
-    world.keys.up = false;
-    world.keys.down = false;
-    world.keys.left = false;
-    world.keys.right = false;
+    world.joystick = { x: 0, y: 0 };
   };
 
   const handleMove = (clientX, clientY) => {
@@ -624,10 +863,10 @@ function setupJoystick(world) {
     const knobY = Math.sin(angle) * dist;
     knob.style.transform = `translate(${knobX - knob.offsetWidth / 2}px, ${knobY - knob.offsetHeight / 2}px)`;
 
-    world.keys.left = knobX < -10;
-    world.keys.right = knobX > 10;
-    world.keys.up = knobY < -10;
-    world.keys.down = knobY > 10;
+    world.joystick = {
+      x: knobX / maxDistance,
+      y: knobY / maxDistance
+    };
   };
 
   knob.addEventListener('pointerdown', (event) => {
