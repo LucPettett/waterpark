@@ -324,6 +324,18 @@ class GameWorld {
     }, 1500);
   }
 
+  addChatMessage(text) {
+    if (!this.ui.chatMessages) return;
+    const message = document.createElement('div');
+    message.className = 'chatMessage';
+    message.textContent = text;
+    this.ui.chatMessages.prepend(message);
+    const messages = [...this.ui.chatMessages.querySelectorAll('.chatMessage')];
+    if (messages.length > 8) {
+      messages.slice(8).forEach((item) => item.remove());
+    }
+  }
+
   updateStats() {
     this.ui.money.textContent = this.money.toFixed(0);
     this.ui.visitors.textContent = this.totalVisitors;
@@ -479,8 +491,10 @@ class GameWorld {
   }
 
   createArrivalPayload() {
-    const visitors = Math.floor(Math.random() * 3) + 2;
-    const pets = Math.random() > 0.6 ? Math.floor(Math.random() * 2) + 1 : 0;
+    const attractionLevel = Math.min(6, Math.max(1, Math.floor(this.buildings.length / 3) + 1));
+    const visitors = Math.max(1, Math.ceil(Math.random() * attractionLevel));
+    const petChance = Math.min(0.75, 0.2 + this.buildings.length * 0.03);
+    const pets = Math.random() > 1 - petChance ? Math.floor(Math.random() * Math.max(1, Math.floor(attractionLevel / 2))) : 0;
     return { visitors, pets };
   }
 
@@ -524,7 +538,7 @@ class GameWorld {
     if (revenue > 0) {
       this.money += revenue;
       const label = agent.isPet ? '🐾 Pet visit' : '🎟️ Visit';
-      this.showMessage(`${label} +$${revenue.toFixed(0)}`);
+      this.addChatMessage(`${label} +$${revenue.toFixed(0)}`);
     }
   }
 
@@ -650,6 +664,7 @@ function initGame() {
     pets: document.getElementById('pets'),
     active: document.getElementById('active'),
     message: document.getElementById('message'),
+    chatMessages: document.getElementById('chatMessages'),
     bottomPanel: document.getElementById('bottomPanel'),
     mouse: null
   };
