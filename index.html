@@ -14,6 +14,14 @@
                 <div class="stat">🐕 Pets: <span id="pets">0</span></div>
                 <div class="stat">🎢 In Park: <span id="active">0</span></div>
             </div>
+            <div id="message"></div>
+            <div id="chatPanel">
+                <div class="chatHeader">Park Log</div>
+                <div id="chatMessages"></div>
+            </div>
+        </div>
+        
+        <div id="bottomPanel">
             <div id="tabs">
                 <button class="tab active" data-tab="attractions">Attractions</button>
                 <button class="tab" data-tab="food">Food</button>
@@ -23,212 +31,209 @@
                 <button class="tab" data-tab="internet">Internet Cafe</button>
                 <button class="tab" data-tab="transport">Transport</button>
             </div>
-            <div id="message"></div>
-        </div>
-        
-        <div id="bottomPanel">
-            <!-- Attractions -->
-            <div class="shopItem attraction-item" data-type="pool" data-cost="100" data-price="5" data-petprice="8">
-                <div class="itemName">🏊 Pool</div>
-                <div class="itemCost">Build: $100</div>
-                <div class="itemPrice">Human: $5</div>
-                <div class="itemPetPrice">Dog: $8</div>
-            </div>
-            <div class="shopItem attraction-item" data-type="splash" data-cost="200" data-price="10" data-petprice="15">
-                <div class="itemName">💦 Splash Pool</div>
-                <div class="itemCost">Build: $200</div>
-                <div class="itemPrice">Human: $10</div>
-                <div class="itemPetPrice">Dog: $15</div>
-            </div>
-            <div class="shopItem attraction-item" data-type="slide" data-cost="300" data-price="15" data-petprice="22">
-                <div class="itemName">🌊 Water Slide</div>
-                <div class="itemCost">Build: $300</div>
-                <div class="itemPrice">Human: $15</div>
-                <div class="itemPetPrice">Dog: $22</div>
-            </div>
-            <div class="shopItem attraction-item" data-type="coaster" data-cost="500" data-price="30" data-petprice="45">
-                <div class="itemName">🎢 Rollercoaster</div>
-                <div class="itemCost">Build: $500</div>
-                <div class="itemPrice">Human: $30</div>
-                <div class="itemPetPrice">Dog: $45</div>
-            </div>
-            <div class="shopItem attraction-item" data-type="lazy" data-cost="250" data-price="12" data-petprice="18">
-                <div class="itemName">🛟 Lazy River</div>
-                <div class="itemCost">Build: $250</div>
-                <div class="itemPrice">Human: $12</div>
-                <div class="itemPetPrice">Dog: $18</div>
-            </div>
-            <div class="shopItem attraction-item" data-type="wave" data-cost="400" data-price="20" data-petprice="30">
-                <div class="itemName">🌊 Wave Pool</div>
-                <div class="itemCost">Build: $400</div>
-                <div class="itemPrice">Human: $20</div>
-                <div class="itemPetPrice">Dog: $30</div>
-            </div>
-            <div class="shopItem attraction-item" data-type="tower" data-cost="600" data-price="35" data-petprice="50">
-                <div class="itemName">🗼 Drop Tower</div>
-                <div class="itemCost">Build: $600</div>
-                <div class="itemPrice">Human: $35</div>
-                <div class="itemPetPrice">Dog: $50</div>
-            </div>
-            <div class="shopItem attraction-item" data-type="rapids" data-cost="700" data-price="40" data-petprice="60">
-                <div class="itemName">🌀 Rapids Ride</div>
-                <div class="itemCost">Build: $700</div>
-                <div class="itemPrice">Human: $40</div>
-                <div class="itemPetPrice">Dog: $60</div>
-            </div>
-            <div class="shopItem attraction-item" data-type="mega" data-cost="1000" data-price="50" data-petprice="75">
-                <div class="itemName">🎡 Mega Slide</div>
-                <div class="itemCost">Build: $1000</div>
-                <div class="itemPrice">Human: $50</div>
-                <div class="itemPetPrice">Dog: $75</div>
-            </div>
-            <div class="shopItem attraction-item" data-type="ferris" data-cost="800" data-price="25" data-petprice="38">
-                <div class="itemName">🎡 Ferris Wheel</div>
-                <div class="itemCost">Build: $800</div>
-                <div class="itemPrice">Human: $25</div>
-                <div class="itemPetPrice">Dog: $38</div>
-            </div>
-            <div class="shopItem attraction-item" data-type="carousel" data-cost="600" data-price="18" data-petprice="27">
-                <div class="itemName">🎠 Carousel</div>
-                <div class="itemCost">Build: $600</div>
-                <div class="itemPrice">Human: $18</div>
-                <div class="itemPetPrice">Dog: $27</div>
-            </div>
-            <div class="shopItem attraction-item" data-type="arcade" data-cost="400" data-price="22" data-petprice="33">
-                <div class="itemName">🕹️ Arcade</div>
-                <div class="itemCost">Build: $400</div>
-                <div class="itemPrice">Human: $22</div>
-                <div class="itemPetPrice">Dog: $33</div>
-            </div>
+            <div id="shopItems">
+                <!-- Attractions -->
+                <div class="shopItem attraction-item" data-type="pool" data-cost="100" data-price="5" data-petprice="8">
+                    <div class="itemName">🏊 Pool</div>
+                    <div class="itemCost">Build: $100</div>
+                    <div class="itemPrice">Human: $5</div>
+                    <div class="itemPetPrice">Dog: $8</div>
+                </div>
+                <div class="shopItem attraction-item" data-type="splash" data-cost="200" data-price="10" data-petprice="15">
+                    <div class="itemName">💦 Splash Pool</div>
+                    <div class="itemCost">Build: $200</div>
+                    <div class="itemPrice">Human: $10</div>
+                    <div class="itemPetPrice">Dog: $15</div>
+                </div>
+                <div class="shopItem attraction-item" data-type="slide" data-cost="300" data-price="15" data-petprice="22">
+                    <div class="itemName">🌊 Water Slide</div>
+                    <div class="itemCost">Build: $300</div>
+                    <div class="itemPrice">Human: $15</div>
+                    <div class="itemPetPrice">Dog: $22</div>
+                </div>
+                <div class="shopItem attraction-item" data-type="coaster" data-cost="500" data-price="30" data-petprice="45">
+                    <div class="itemName">🎢 Rollercoaster</div>
+                    <div class="itemCost">Build: $500</div>
+                    <div class="itemPrice">Human: $30</div>
+                    <div class="itemPetPrice">Dog: $45</div>
+                </div>
+                <div class="shopItem attraction-item" data-type="lazy" data-cost="250" data-price="12" data-petprice="18">
+                    <div class="itemName">🛟 Lazy River</div>
+                    <div class="itemCost">Build: $250</div>
+                    <div class="itemPrice">Human: $12</div>
+                    <div class="itemPetPrice">Dog: $18</div>
+                </div>
+                <div class="shopItem attraction-item" data-type="wave" data-cost="400" data-price="20" data-petprice="30">
+                    <div class="itemName">🌊 Wave Pool</div>
+                    <div class="itemCost">Build: $400</div>
+                    <div class="itemPrice">Human: $20</div>
+                    <div class="itemPetPrice">Dog: $30</div>
+                </div>
+                <div class="shopItem attraction-item" data-type="tower" data-cost="600" data-price="35" data-petprice="50">
+                    <div class="itemName">🗼 Drop Tower</div>
+                    <div class="itemCost">Build: $600</div>
+                    <div class="itemPrice">Human: $35</div>
+                    <div class="itemPetPrice">Dog: $50</div>
+                </div>
+                <div class="shopItem attraction-item" data-type="rapids" data-cost="700" data-price="40" data-petprice="60">
+                    <div class="itemName">🌀 Rapids Ride</div>
+                    <div class="itemCost">Build: $700</div>
+                    <div class="itemPrice">Human: $40</div>
+                    <div class="itemPetPrice">Dog: $60</div>
+                </div>
+                <div class="shopItem attraction-item" data-type="mega" data-cost="1000" data-price="50" data-petprice="75">
+                    <div class="itemName">🎡 Mega Slide</div>
+                    <div class="itemCost">Build: $1000</div>
+                    <div class="itemPrice">Human: $50</div>
+                    <div class="itemPetPrice">Dog: $75</div>
+                </div>
+                <div class="shopItem attraction-item" data-type="ferris" data-cost="800" data-price="25" data-petprice="38">
+                    <div class="itemName">🎡 Ferris Wheel</div>
+                    <div class="itemCost">Build: $800</div>
+                    <div class="itemPrice">Human: $25</div>
+                    <div class="itemPetPrice">Dog: $38</div>
+                </div>
+                <div class="shopItem attraction-item" data-type="carousel" data-cost="600" data-price="18" data-petprice="27">
+                    <div class="itemName">🎠 Carousel</div>
+                    <div class="itemCost">Build: $600</div>
+                    <div class="itemPrice">Human: $18</div>
+                    <div class="itemPetPrice">Dog: $27</div>
+                </div>
+                <div class="shopItem attraction-item" data-type="arcade" data-cost="400" data-price="22" data-petprice="33">
+                    <div class="itemName">🕹️ Arcade</div>
+                    <div class="itemCost">Build: $400</div>
+                    <div class="itemPrice">Human: $22</div>
+                    <div class="itemPetPrice">Dog: $33</div>
+                </div>
 
-            <!-- Food Stands -->
-            <div class="shopItem food food-item" style="display:none;" data-type="hotdog" data-cost="50" data-price="8" data-petprice="12">
-                <div class="itemName">🌭 Hot Dog Stand</div>
-                <div class="itemCost">Build: $50</div>
-                <div class="itemPrice">Human: $8</div>
-                <div class="itemPetPrice">Dog: $12</div>
-            </div>
-            <div class="shopItem food food-item" style="display:none;" data-type="pizza" data-cost="80" data-price="12" data-petprice="18">
-                <div class="itemName">🍕 Pizza Stand</div>
-                <div class="itemCost">Build: $80</div>
-                <div class="itemPrice">Human: $12</div>
-                <div class="itemPetPrice">Dog: $18</div>
-            </div>
-            <div class="shopItem food food-item" style="display:none;" data-type="burger" data-cost="100" data-price="15" data-petprice="22">
-                <div class="itemName">🍔 Burger Stand</div>
-                <div class="itemCost">Build: $100</div>
-                <div class="itemPrice">Human: $15</div>
-                <div class="itemPetPrice">Dog: $22</div>
-            </div>
-            <div class="shopItem food food-item" style="display:none;" data-type="icecream" data-cost="60" data-price="6" data-petprice="9">
-                <div class="itemName">🍦 Ice Cream Stand</div>
-                <div class="itemCost">Build: $60</div>
-                <div class="itemPrice">Human: $6</div>
-                <div class="itemPetPrice">Dog: $9</div>
-            </div>
-            <div class="shopItem food food-item" style="display:none;" data-type="popcorn" data-cost="40" data-price="5" data-petprice="8">
-                <div class="itemName">🍿 Popcorn Stand</div>
-                <div class="itemCost">Build: $40</div>
-                <div class="itemPrice">Human: $5</div>
-                <div class="itemPetPrice">Dog: $8</div>
-            </div>
-            <div class="shopItem food food-item" style="display:none;" data-type="taco" data-cost="90" data-price="10" data-petprice="15">
-                <div class="itemName">🌮 Taco Stand</div>
-                <div class="itemCost">Build: $90</div>
-                <div class="itemPrice">Human: $10</div>
-                <div class="itemPetPrice">Dog: $15</div>
-            </div>
-            <div class="shopItem food food-item" style="display:none;" data-type="sushi" data-cost="120" data-price="18" data-petprice="27">
-                <div class="itemName">🍣 Sushi Stand</div>
-                <div class="itemCost">Build: $120</div>
-                <div class="itemPrice">Human: $18</div>
-                <div class="itemPetPrice">Dog: $27</div>
-            </div>
-            <div class="shopItem food food-item" style="display:none;" data-type="coffee" data-cost="70" data-price="7" data-petprice="10">
-                <div class="itemName">☕ Coffee Stand</div>
-                <div class="itemCost">Build: $70</div>
-                <div class="itemPrice">Human: $7</div>
-                <div class="itemPetPrice">Dog: $10</div>
-            </div>
+                <!-- Food Stands -->
+                <div class="shopItem food food-item" style="display:none;" data-type="hotdog" data-cost="50" data-price="8" data-petprice="12">
+                    <div class="itemName">🌭 Hot Dog Stand</div>
+                    <div class="itemCost">Build: $50</div>
+                    <div class="itemPrice">Human: $8</div>
+                    <div class="itemPetPrice">Dog: $12</div>
+                </div>
+                <div class="shopItem food food-item" style="display:none;" data-type="pizza" data-cost="80" data-price="12" data-petprice="18">
+                    <div class="itemName">🍕 Pizza Stand</div>
+                    <div class="itemCost">Build: $80</div>
+                    <div class="itemPrice">Human: $12</div>
+                    <div class="itemPetPrice">Dog: $18</div>
+                </div>
+                <div class="shopItem food food-item" style="display:none;" data-type="burger" data-cost="100" data-price="15" data-petprice="22">
+                    <div class="itemName">🍔 Burger Stand</div>
+                    <div class="itemCost">Build: $100</div>
+                    <div class="itemPrice">Human: $15</div>
+                    <div class="itemPetPrice">Dog: $22</div>
+                </div>
+                <div class="shopItem food food-item" style="display:none;" data-type="icecream" data-cost="60" data-price="6" data-petprice="9">
+                    <div class="itemName">🍦 Ice Cream Stand</div>
+                    <div class="itemCost">Build: $60</div>
+                    <div class="itemPrice">Human: $6</div>
+                    <div class="itemPetPrice">Dog: $9</div>
+                </div>
+                <div class="shopItem food food-item" style="display:none;" data-type="popcorn" data-cost="40" data-price="5" data-petprice="8">
+                    <div class="itemName">🍿 Popcorn Stand</div>
+                    <div class="itemCost">Build: $40</div>
+                    <div class="itemPrice">Human: $5</div>
+                    <div class="itemPetPrice">Dog: $8</div>
+                </div>
+                <div class="shopItem food food-item" style="display:none;" data-type="taco" data-cost="90" data-price="10" data-petprice="15">
+                    <div class="itemName">🌮 Taco Stand</div>
+                    <div class="itemCost">Build: $90</div>
+                    <div class="itemPrice">Human: $10</div>
+                    <div class="itemPetPrice">Dog: $15</div>
+                </div>
+                <div class="shopItem food food-item" style="display:none;" data-type="sushi" data-cost="120" data-price="18" data-petprice="27">
+                    <div class="itemName">🍣 Sushi Stand</div>
+                    <div class="itemCost">Build: $120</div>
+                    <div class="itemPrice">Human: $18</div>
+                    <div class="itemPetPrice">Dog: $27</div>
+                </div>
+                <div class="shopItem food food-item" style="display:none;" data-type="coffee" data-cost="70" data-price="7" data-petprice="10">
+                    <div class="itemName">☕ Coffee Stand</div>
+                    <div class="itemCost">Build: $70</div>
+                    <div class="itemPrice">Human: $7</div>
+                    <div class="itemPetPrice">Dog: $10</div>
+                </div>
 
-            <!-- Facilities -->
-            <div class="shopItem facility facility-item" style="display:none;" data-type="toilet" data-cost="30" data-price="0.50" data-petprice="1">
-                <div class="itemName">🚻 Toilet</div>
-                <div class="itemCost">Build: $30</div>
-                <div class="itemPrice">Human: $0.50</div>
-                <div class="itemPetPrice">Dog: $1</div>
-            </div>
-            <div class="shopItem facility facility-item" style="display:none;" data-type="bench" data-cost="20" data-price="0" data-petprice="0">
-                <div class="itemName">🪑 Bench</div>
-                <div class="itemCost">Build: $20</div>
-                <div class="itemPrice">Rest: FREE</div>
-            </div>
-            <div class="shopItem facility facility-item" style="display:none;" data-type="trash" data-cost="15" data-price="0" data-petprice="0">
-                <div class="itemName">🗑️ Trash Can</div>
-                <div class="itemCost">Build: $15</div>
-                <div class="itemPrice">Use: FREE</div>
-            </div>
-            <div class="shopItem facility facility-item" style="display:none;" data-type="atm" data-cost="80" data-price="2" data-petprice="3">
-                <div class="itemName">🏧 ATM</div>
-                <div class="itemCost">Build: $80</div>
-                <div class="itemPrice">Human: $2</div>
-                <div class="itemPetPrice">Dog: $3</div>
-            </div>
-            <div class="shopItem facility facility-item" style="display:none;" data-type="fountain" data-cost="150" data-price="0" data-petprice="0">
-                <div class="itemName">⛲ Fountain</div>
-                <div class="itemCost">Build: $150</div>
-                <div class="itemPrice">Decoration</div>
-            </div>
+                <!-- Facilities -->
+                <div class="shopItem facility facility-item" style="display:none;" data-type="toilet" data-cost="30" data-price="0.50" data-petprice="1">
+                    <div class="itemName">🚻 Toilet</div>
+                    <div class="itemCost">Build: $30</div>
+                    <div class="itemPrice">Human: $0.50</div>
+                    <div class="itemPetPrice">Dog: $1</div>
+                </div>
+                <div class="shopItem facility facility-item" style="display:none;" data-type="bench" data-cost="20" data-price="0" data-petprice="0">
+                    <div class="itemName">🪑 Bench</div>
+                    <div class="itemCost">Build: $20</div>
+                    <div class="itemPrice">Rest: FREE</div>
+                </div>
+                <div class="shopItem facility facility-item" style="display:none;" data-type="trash" data-cost="15" data-price="0" data-petprice="0">
+                    <div class="itemName">🗑️ Trash Can</div>
+                    <div class="itemCost">Build: $15</div>
+                    <div class="itemPrice">Use: FREE</div>
+                </div>
+                <div class="shopItem facility facility-item" style="display:none;" data-type="atm" data-cost="80" data-price="2" data-petprice="3">
+                    <div class="itemName">🏧 ATM</div>
+                    <div class="itemCost">Build: $80</div>
+                    <div class="itemPrice">Human: $2</div>
+                    <div class="itemPetPrice">Dog: $3</div>
+                </div>
+                <div class="shopItem facility facility-item" style="display:none;" data-type="fountain" data-cost="150" data-price="0" data-petprice="0">
+                    <div class="itemName">⛲ Fountain</div>
+                    <div class="itemCost">Build: $150</div>
+                    <div class="itemPrice">Decoration</div>
+                </div>
 
-            <!-- Pet Services -->
-            <div class="shopItem pet pet-item" style="display:none;" data-type="dogbath" data-cost="120" data-price="25" data-petprice="25">
-                <div class="itemName">🛁 Dog Bath</div>
-                <div class="itemCost">Build: $120</div>
-                <div class="itemPrice">Service: $25</div>
-            </div>
-            <div class="shopItem pet pet-item" style="display:none;" data-type="petpark" data-cost="150" data-price="15" data-petprice="15">
-                <div class="itemName">🐕 Dog Park</div>
-                <div class="itemCost">Build: $150</div>
-                <div class="itemPrice">Entry: $15</div>
-            </div>
-            <div class="shopItem pet pet-item" style="display:none;" data-type="petgrooming" data-cost="200" data-price="40" data-petprice="40">
-                <div class="itemName">✂️ Pet Grooming</div>
-                <div class="itemCost">Build: $200</div>
-                <div class="itemPrice">Service: $40</div>
-            </div>
-            <div class="shopItem pet pet-item" style="display:none;" data-type="petstore" data-cost="180" data-price="30" data-petprice="30">
-                <div class="itemName">🛒 Pet Store</div>
-                <div class="itemCost">Build: $180</div>
-                <div class="itemPrice">Shopping: $30</div>
-            </div>
-            <div class="shopItem pet pet-item" style="display:none;" data-type="vetclinic" data-cost="250" data-price="50" data-petprice="50">
-                <div class="itemName">🏥 Vet Clinic</div>
-                <div class="itemCost">Build: $250</div>
-                <div class="itemPrice">Checkup: $50</div>
-            </div>
-            <div class="shopItem pet pet-item" style="display:none;" data-type="pethotel" data-cost="300" data-price="60" data-petprice="60">
-                <div class="itemName">🏨 Pet Hotel</div>
-                <div class="itemCost">Build: $300</div>
-                <div class="itemPrice">Stay: $60</div>
-            </div>
-            <div class="shopItem pet pet-item" style="display:none;" data-type="dogpool" data-cost="220" data-price="35" data-petprice="35">
-                <div class="itemName">🏊‍♂️ Dog Pool</div>
-                <div class="itemCost">Build: $220</div>
-                <div class="itemPrice">Swim: $35</div>
-            </div>
-            <div class="shopItem pet pet-item" style="display:none;" data-type="petcafe" data-cost="160" data-price="28" data-petprice="28">
-                <div class="itemName">☕ Pet Cafe</div>
-                <div class="itemCost">Build: $160</div>
-                <div class="itemPrice">Treat: $28</div>
-            </div>
+                <!-- Pet Services -->
+                <div class="shopItem pet pet-item" style="display:none;" data-type="dogbath" data-cost="120" data-price="25" data-petprice="25">
+                    <div class="itemName">🛁 Dog Bath</div>
+                    <div class="itemCost">Build: $120</div>
+                    <div class="itemPrice">Service: $25</div>
+                </div>
+                <div class="shopItem pet pet-item" style="display:none;" data-type="petpark" data-cost="150" data-price="15" data-petprice="15">
+                    <div class="itemName">🐕 Dog Park</div>
+                    <div class="itemCost">Build: $150</div>
+                    <div class="itemPrice">Entry: $15</div>
+                </div>
+                <div class="shopItem pet pet-item" style="display:none;" data-type="petgrooming" data-cost="200" data-price="40" data-petprice="40">
+                    <div class="itemName">✂️ Pet Grooming</div>
+                    <div class="itemCost">Build: $200</div>
+                    <div class="itemPrice">Service: $40</div>
+                </div>
+                <div class="shopItem pet pet-item" style="display:none;" data-type="petstore" data-cost="180" data-price="30" data-petprice="30">
+                    <div class="itemName">🛒 Pet Store</div>
+                    <div class="itemCost">Build: $180</div>
+                    <div class="itemPrice">Shopping: $30</div>
+                </div>
+                <div class="shopItem pet pet-item" style="display:none;" data-type="vetclinic" data-cost="250" data-price="50" data-petprice="50">
+                    <div class="itemName">🏥 Vet Clinic</div>
+                    <div class="itemCost">Build: $250</div>
+                    <div class="itemPrice">Checkup: $50</div>
+                </div>
+                <div class="shopItem pet pet-item" style="display:none;" data-type="pethotel" data-cost="300" data-price="60" data-petprice="60">
+                    <div class="itemName">🏨 Pet Hotel</div>
+                    <div class="itemCost">Build: $300</div>
+                    <div class="itemPrice">Stay: $60</div>
+                </div>
+                <div class="shopItem pet pet-item" style="display:none;" data-type="dogpool" data-cost="220" data-price="35" data-petprice="35">
+                    <div class="itemName">🏊‍♂️ Dog Pool</div>
+                    <div class="itemCost">Build: $220</div>
+                    <div class="itemPrice">Swim: $35</div>
+                </div>
+                <div class="shopItem pet pet-item" style="display:none;" data-type="petcafe" data-cost="160" data-price="28" data-petprice="28">
+                    <div class="itemName">☕ Pet Cafe</div>
+                    <div class="itemCost">Build: $160</div>
+                    <div class="itemPrice">Treat: $28</div>
+                </div>
 
-            <!-- Services -->
-            <div class="shopItem service service-item" style="display:none;" data-type="hotel" data-cost="2500" data-price="120" data-petprice="180">
-                <div class="itemName">🏨 Hotel</div>
-                <div class="itemCost">Build: $2500</div>
-                <div class="itemPrice">Human: $120</div>
-                <div class="itemPetPrice">Dog: $180</div>
-            </div>
+                <!-- Services -->
+                <div class="shopItem service service-item" style="display:none;" data-type="hotel" data-cost="2500" data-price="120" data-petprice="180">
+                    <div class="itemName">🏨 Hotel</div>
+                    <div class="itemCost">Build: $2500</div>
+                    <div class="itemPrice">Human: $120</div>
+                    <div class="itemPetPrice">Dog: $180</div>
+                </div>
             <div class="shopItem service service-item" style="display:none;" data-type="luxuryhotel" data-cost="5000" data-price="250" data-petprice="375">
                 <div class="itemName">🏰 Luxury Hotel</div>
                 <div class="itemCost">Build: $5000</div>
@@ -325,20 +330,20 @@
                 <div class="itemPrice">Human: $40</div>
                 <div class="itemPetPrice">Dog: $60</div>
             </div>
-            <div class="shopItem service service-item" style="display:none;" data-type="zoo" data-cost="6000" data-price="35" data-petprice="52">
-                <div class="itemName">🦁 Zoo</div>
-                <div class="itemCost">Build: $6000</div>
-                <div class="itemPrice">Human: $35</div>
-                <div class="itemPetPrice">Dog: $52</div>
-            </div>
+                <div class="shopItem service service-item" style="display:none;" data-type="zoo" data-cost="6000" data-price="35" data-petprice="52">
+                    <div class="itemName">🦁 Zoo</div>
+                    <div class="itemCost">Build: $6000</div>
+                    <div class="itemPrice">Human: $35</div>
+                    <div class="itemPetPrice">Dog: $52</div>
+                </div>
 
-            <!-- Internet Cafe -->
-            <div class="shopItem internet internet-item" style="display:none;" data-type="basicpc" data-cost="300" data-price="5" data-petprice="8">
-                <div class="itemName">💻 Basic PC</div>
-                <div class="itemCost">Build: $300</div>
-                <div class="itemPrice">Human: $5/hr</div>
-                <div class="itemPetPrice">Dog: $8/hr</div>
-            </div>
+                <!-- Internet Cafe -->
+                <div class="shopItem internet internet-item" style="display:none;" data-type="basicpc" data-cost="300" data-price="5" data-petprice="8">
+                    <div class="itemName">💻 Basic PC</div>
+                    <div class="itemCost">Build: $300</div>
+                    <div class="itemPrice">Human: $5/hr</div>
+                    <div class="itemPetPrice">Dog: $8/hr</div>
+                </div>
             <div class="shopItem internet internet-item" style="display:none;" data-type="gamingpc" data-cost="800" data-price="15" data-petprice="22">
                 <div class="itemName">🎮 Gaming PC</div>
                 <div class="itemCost">Build: $800</div>
@@ -399,19 +404,20 @@
                 <div class="itemPrice">Human: $12/hr</div>
                 <div class="itemPetPrice">Dog: $18/hr</div>
             </div>
-            <div class="shopItem internet internet-item" style="display:none;" data-type="youtube" data-cost="1000" data-price="15" data-petprice="22">
-                <div class="itemName">▶️ YouTube Theater</div>
-                <div class="itemCost">Build: $1000</div>
-                <div class="itemPrice">Human: $15</div>
-                <div class="itemPetPrice">Dog: $22</div>
-            </div>
+                <div class="shopItem internet internet-item" style="display:none;" data-type="youtube" data-cost="1000" data-price="15" data-petprice="22">
+                    <div class="itemName">▶️ YouTube Theater</div>
+                    <div class="itemCost">Build: $1000</div>
+                    <div class="itemPrice">Human: $15</div>
+                    <div class="itemPetPrice">Dog: $22</div>
+                </div>
 
-            <!-- Transport -->
-            <div class="shopItem transport transport-item" style="display:none;" data-type="trainstation" data-cost="3000" data-price="0.50" data-petprice="0.50">
-                <div class="itemName">🚂 Train Station</div>
-                <div class="itemCost">Build: $3000</div>
-                <div class="itemPrice">Ticket: $0.50</div>
-                <div class="itemPetPrice">Per passenger</div>
+                <!-- Transport -->
+                <div class="shopItem transport transport-item" style="display:none;" data-type="trainstation" data-cost="3000" data-price="0.50" data-petprice="0.50">
+                    <div class="itemName">🚂 Train Station</div>
+                    <div class="itemCost">Build: $3000</div>
+                    <div class="itemPrice">Ticket: $0.50</div>
+                    <div class="itemPetPrice">Per passenger</div>
+                </div>
             </div>
         </div>
         
