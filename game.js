@@ -220,8 +220,73 @@ class Agent {
   }
 }
 
+class Car {
+  constructor({ x, y, speed, direction, stopX, role, sprite, payload, width = 70 }) {
+    this.x = x;
+    this.y = y;
+    this.speed = speed;
+    this.direction = direction;
+    this.stopX = stopX;
+    this.role = role;
+    this.sprite = sprite;
+    this.payload = payload;
+    this.width = width;
+    this.state = 'moving';
+    this.stopTimer = 0;
+    this.handled = false;
+  }
+
+  update(delta, world) {
+    if (this.state === 'stopped') {
+      this.stopTimer -= delta;
+      if (this.stopTimer <= 0) {
+        this.state = 'departing';
+      }
+    } else {
+      this.x += this.speed * delta * this.direction;
+      if (!this.handled) {
+        const reachedStop =
+          (this.direction > 0 && this.x >= this.stopX) || (this.direction < 0 && this.x <= this.stopX);
+        if (reachedStop) {
+          this.x = this.stopX;
+          this.state = 'stopped';
+          this.stopTimer = 70;
+          world.handleCarStop(this);
+        }
+      }
+    }
+
+    const buffer = 200;
+    if (this.direction > 0 && this.x - this.width > world.worldBounds.right + buffer) return true;
+    if (this.direction < 0 && this.x + this.width < world.worldBounds.left - buffer) return true;
+    return false;
+  }
+
+  draw(ctx, camera) {
+    const drawX = this.x - camera.x;
+    const drawY = this.y - camera.y;
+    const hasSprite = this.sprite?.complete && this.sprite.naturalWidth > 0;
+    const height = hasSprite ? (this.sprite.naturalHeight / this.sprite.naturalWidth) * this.width : 30;
+
+    ctx.save();
+    if (this.direction < 0) {
+      ctx.translate(drawX, drawY);
+      ctx.scale(-1, 1);
+      ctx.translate(-drawX, -drawY);
+    }
+
+    if (hasSprite) {
+      ctx.drawImage(this.sprite, drawX - this.width / 2, drawY - height / 2, this.width, height);
+    } else {
+      ctx.fillStyle = '#333';
+      ctx.fillRect(drawX - this.width / 2, drawY - height / 2, this.width, height);
+    }
+    ctx.restore();
+  }
+}
+
 class GameWorld {
-  constructor({ canvas, ctx, ui }) {
+  constructor({ canvas, ctx, ui, carSprites }) {
     this.canvas = canvas;
     this.ctx = ctx;
     this.ui = ui;
@@ -233,14 +298,18 @@ class GameWorld {
     this.activePets = 0;
     this.buildings = [];
     this.agents = [];
+    this.cars = [];
     this.lastSpawn = 0;
     this.spawnInterval = 2400;
+    this.lastCarSpawn = 0;
+    this.carSpawnInterval = 2200;
     this.keys = { up: false, down: false, left: false, right: false };
     this.selectedItem = null;
     this.messageTimeout = null;
     this.entrance = { x: 300, y: 80, width: 80, height: 50 };
     this.exit = { x: 520, y: 80, width: 80, height: 50 };
     this.worldBounds = { left: -400, right: 1600, top: -200, bottom: 1200 };
+    this.carSprites = carSprites;
   }
 
   setSelectedItem(item) {
@@ -323,11 +392,7 @@ class GameWorld {
     return eligible[Math.floor(Math.random() * eligible.length)];
   }
 
-  spawnAgents(time) {
-    if (time - this.lastSpawn < this.spawnInterval) return;
-    this.lastSpawn = time;
-
-    const visitors = Math.floor(Math.random() * 3) + 2;
+  spawnAgentsAtEntrance({ visitors, pets }) {
     for (let i = 0; i < visitors; i++) {
       const agent = new Agent({
         x: this.entrance.x + Math.random() * this.entrance.width,
@@ -340,20 +405,121 @@ class GameWorld {
     }
     this.activeVisitors += visitors;
 
-    if (Math.random() > 0.6) {
-      const pets = Math.floor(Math.random() * 2) + 1;
-      for (let i = 0; i < pets; i++) {
-        const pet = new Agent({
-          x: this.entrance.x + Math.random() * this.entrance.width,
-          y: this.entrance.y + this.entrance.height + Math.random() * 20,
-          isPet: true,
-          speed: 0.7 + Math.random() * 0.4
-        });
-        this.agents.push(pet);
-        this.totalPets += 1;
-      }
-      this.activePets += pets;
+    for (let i = 0; i < pets; i++) {
+      const pet = new Agent({
+        x: this.entrance.x + Math.random() * this.entrance.width,
+        y: this.entrance.y + this.entrance.height + Math.random() * 20,
+        isPet: true,
+        speed: 0.7 + Math.random() * 0.4
+      });
+      this.agents.push(pet);
+      this.totalPets += 1;
     }
+    this.activePets += pets;
+  }
+
+  spawnCars(time) {
+    if (time - this.lastCarSpawn < this.carSpawnInterval) return;
+    this.lastCarSpawn = time;
+
+    const spawnPickup = this.activeVisitors + this.activePets > 0 && Math.random() > 0.65;
+    const role = spawnPickup ? 'pickup' : 'dropoff';
+    const { sprite, width } = this.pickRandomCarSprite();
+    const speed = 1.8 + Math.random() * 0.6;
+    const roadY = 50 + 20;
+    const spawnOffset = 120;
+
+    if (role === 'dropoff') {
+      const payload = this.createArrivalPayload();
+      const car = new Car({
+        x: this.worldBounds.left - spawnOffset,
+        y: roadY,
+        speed,
+        direction: 1,
+        stopX: this.entrance.x + this.entrance.width / 2,
+        role,
+        sprite,
+        payload,
+        width
+      });
+      this.cars.push(car);
+      return;
+    }
+
+    const pickupCount = Math.min(this.activeVisitors + this.activePets, Math.floor(Math.random() * 3) + 1);
+    const car = new Car({
+      x: this.worldBounds.right + spawnOffset,
+      y: roadY - 6,
+      speed,
+      direction: -1,
+      stopX: this.exit.x + this.exit.width / 2,
+      role,
+      sprite,
+      payload: { pickupCount },
+      width
+    });
+    this.cars.push(car);
+  }
+
+  pickRandomCarSprite() {
+    const weighted = [
+      { key: 'sedan', weight: 5, width: 70 },
+      { key: 'suv', weight: 5, width: 76 },
+      { key: 'taxi', weight: 4, width: 70 },
+      { key: 'motorbike', weight: 3, width: 52 },
+      { key: 'truck', weight: 3, width: 90 },
+      { key: 'police', weight: 1, width: 78 },
+      { key: 'ambulance', weight: 1, width: 78 }
+    ];
+    const total = weighted.reduce((sum, item) => sum + item.weight, 0);
+    let roll = Math.random() * total;
+    for (const item of weighted) {
+      roll -= item.weight;
+      if (roll <= 0) {
+        return { sprite: this.carSprites[item.key], width: item.width };
+      }
+    }
+    return { sprite: this.carSprites.sedan, width: 70 };
+  }
+
+  createArrivalPayload() {
+    const visitors = Math.floor(Math.random() * 3) + 2;
+    const pets = Math.random() > 0.6 ? Math.floor(Math.random() * 2) + 1 : 0;
+    return { visitors, pets };
+  }
+
+  handleCarStop(car) {
+    if (car.handled) return;
+    if (car.role === 'dropoff') {
+      this.spawnAgentsAtEntrance(car.payload);
+    } else {
+      this.pickupAgentsAtExit(car.payload.pickupCount);
+    }
+    car.handled = true;
+  }
+
+  pickupAgentsAtExit(count) {
+    if (!count || this.agents.length === 0) return;
+    const exitCenter = {
+      x: this.exit.x + this.exit.width / 2,
+      y: this.exit.y + this.exit.height / 2
+    };
+    const sortedAgents = [...this.agents].sort((a, b) => {
+      const distA = Math.hypot(a.x - exitCenter.x, a.y - exitCenter.y);
+      const distB = Math.hypot(b.x - exitCenter.x, b.y - exitCenter.y);
+      return distA - distB;
+    });
+
+    const toRemove = new Set(sortedAgents.slice(0, count));
+    this.agents = this.agents.filter((agent) => {
+      if (!toRemove.has(agent)) return true;
+      if (agent.isPet) {
+        this.activePets = Math.max(0, this.activePets - 1);
+      } else {
+        this.activeVisitors = Math.max(0, this.activeVisitors - 1);
+      }
+      return false;
+    });
   }
 
   collectRevenue(agent, building) {
@@ -368,8 +534,9 @@ class GameWorld {
 
   update(time, delta) {
     this.adjustCamera(delta);
-    this.spawnAgents(time);
+    this.spawnCars(time);
     this.agents = this.agents.filter((agent) => !agent.update(delta, this));
+    this.cars = this.cars.filter((car) => !car.update(delta, this));
     this.updateStats();
   }
 
@@ -419,6 +586,11 @@ class GameWorld {
     });
   }
 
+  drawCars() {
+    const { ctx } = this;
+    this.cars.forEach((car) => car.draw(ctx, this.camera));
+  }
+
   drawAgents() {
     const { ctx } = this;
     this.agents.forEach((agent) => {
@@ -449,6 +621,7 @@ class GameWorld {
 
   render() {
     this.drawBackground();
+    this.drawCars();
     this.drawBuildings();
     this.drawAgents();
     this.drawGhost();
@@ -458,6 +631,23 @@ class GameWorld {
 function initGame() {
   const canvas = document.getElementById('canvas');
   const ctx = canvas.getContext('2d');
+  const carSprites = {
+    sedan: new Image(),
+    suv: new Image(),
+    taxi: new Image(),
+    motorbike: new Image(),
+    truck: new Image(),
+    police: new Image(),
+    ambulance: new Image()
+  };
+
+  carSprites.sedan.src = 'assets/kenney_car-kit/Previews/sedan.png';
+  carSprites.suv.src = 'assets/kenney_car-kit/Previews/suv.png';
+  carSprites.taxi.src = 'assets/kenney_car-kit/Previews/taxi.png';
+  carSprites.motorbike.src = 'assets/kenney_car-kit/Previews/race.png';
+  carSprites.truck.src = 'assets/kenney_car-kit/Previews/truck.png';
+  carSprites.police.src = 'assets/kenney_car-kit/Previews/police.png';
+  carSprites.ambulance.src = 'assets/kenney_car-kit/Previews/ambulance.png';
   const ui = {
     money: document.getElementById('money'),
     visitors: document.getElementById('visitors'),
@@ -468,7 +658,7 @@ function initGame() {
     mouse: null
   };
 
-  const world = new GameWorld({ canvas, ctx, ui });
+  const world = new GameWorld({ canvas, ctx, ui, carSprites });
 
   const resizeCanvas = () => {
     const height = window.innerHeight - ui.bottomPanel.offsetHeight;
