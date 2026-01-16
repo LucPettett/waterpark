@@ -6,8 +6,7 @@ const CATEGORY_CONFIG = {
   facility: { size: 50, color: '#9aa3ad' },
   pet: { size: 70, color: '#ffb86b' },
   service: { size: 120, color: '#8a5a44' },
-  internet: { size: 90, color: '#6c5ce7' },
-  transport: { size: 140, color: '#8d6e63' }
+  internet: { size: 90, color: '#6c5ce7' }
 };
 
 const CATEGORY_COLORS = {
@@ -85,9 +84,6 @@ const CATEGORY_COLORS = {
     coding: '#6C5CE7',
     discord: '#7289DA',
     youtube: '#FF0000'
-  },
-  transport: {
-    trainstation: '#8B4513'
   }
 };
 
@@ -154,8 +150,7 @@ const EMOJI_MAP = {
   cybercafe: '💻',
   coding: '🧑‍💻',
   discord: '💬',
-  youtube: '▶️',
-  trainstation: '🚂'
+  youtube: '▶️'
 };
 
 class Building {
@@ -183,15 +178,20 @@ class Building {
 }
 
 class Agent {
-  constructor({ tileX, tileY, isPet, speed }) {
+  constructor({ tileX, tileY, isPet, speed, emoji, isStaff = false, budget = 0, spendLimit = 0 }) {
     this.tileX = tileX;
     this.tileY = tileY;
     this.isPet = isPet;
     this.speed = speed;
+    this.isStaff = isStaff;
     this.state = 'wandering';
     this.target = null;
-    this.emoji = isPet ? (Math.random() > 0.5 ? '🐕' : '🐈') : '🧍';
+    this.emoji = emoji ?? (isPet ? (Math.random() > 0.5 ? '🐕' : '🐈') : '🧍');
     this.path = [];
+    this.budget = budget;
+    this.spendLimit = spendLimit;
+    this.spent = 0;
+    this.leaving = false;
   }
 
   assignPath(path, target) {
@@ -201,10 +201,36 @@ class Agent {
   }
 
   update(delta, world) {
+    if (this.isStaff) {
+      if (!this.path.length) return true;
+      const next = this.path[0];
+      const dx = next.x - this.tileX;
+      const dy = next.y - this.tileY;
+      const dist = Math.hypot(dx, dy);
+      if (dist > 0.02) {
+        this.tileX += (dx / dist) * this.speed * delta;
+        this.tileY += (dy / dist) * this.speed * delta;
+        return false;
+      }
+      this.tileX = next.x;
+      this.tileY = next.y;
+      this.path.shift();
+      return this.path.length === 0;
+    }
+
+    if (this.leaving && !this.path.length) {
+      world.handleAgentExit(this);
+      return true;
+    }
+
     if (!this.path.length) {
       if (this.target) {
         world.collectRevenue(this, this.target);
         this.target = null;
+        if (this.leaving) {
+          world.sendAgentToExit(this);
+          return false;
+        }
       }
       world.assignAgentTarget(this);
       return false;
@@ -229,7 +255,7 @@ class Agent {
 }
 
 class Car {
-  constructor({ tileX, tileY, speed, direction, stopTile, role, sprite, payload, width = 70 }) {
+  constructor({ tileX, tileY, speed, direction, stopTile, role, sprite, payload, width = 70, type, canStop = true, ignoreTraffic = false }) {
     this.tileX = tileX;
     this.tileY = tileY;
     this.speed = speed;
@@ -239,6 +265,9 @@ class Car {
     this.sprite = sprite;
     this.payload = payload;
     this.width = width;
+    this.type = type;
+    this.canStop = canStop;
+    this.ignoreTraffic = ignoreTraffic;
     this.height = sprite ? (sprite.height / sprite.width) * width : 30;
     this.state = 'moving';
     this.stopTimer = 0;
@@ -251,19 +280,48 @@ class Car {
       if (this.stopTimer <= 0) {
         this.state = 'departing';
       }
-    } else {
-      this.tileX += this.speed * delta * this.direction.x;
-      this.tileY += this.speed * delta * this.direction.y;
-      if (!this.handled) {
-        const reachedStop =
-          (this.direction.y >= 0 && this.tileY >= this.stopTile.y) ||
-          (this.direction.y < 0 && this.tileY <= this.stopTile.y);
-        if (reachedStop) {
-          this.tileY = this.stopTile.y;
-          this.state = 'stopped';
-          this.stopTimer = 70;
-          world.handleCarStop(this);
+      return false;
+    }
+
+    const nextX = this.tileX + this.speed * delta * this.direction.x;
+    const nextY = this.tileY + this.speed * delta * this.direction.y;
+
+    if (!this.ignoreTraffic) {
+      const blocker = world.getBlockingCar(this);
+      if (blocker) {
+        const gap = world.carFollowDistance;
+        if (this.direction.y > 0) {
+          const maxY = blocker.tileY - gap;
+          if (nextY > maxY) {
+            this.tileX = nextX;
+            this.tileY = Math.min(nextY, maxY);
+            this.state = 'queued';
+            return false;
+          }
+        } else if (this.direction.y < 0) {
+          const minY = blocker.tileY + gap;
+          if (nextY < minY) {
+            this.tileX = nextX;
+            this.tileY = Math.max(nextY, minY);
+            this.state = 'queued';
+            return false;
+          }
         }
+      }
+    }
+
+    this.state = 'moving';
+    this.tileX = nextX;
+    this.tileY = nextY;
+    if (this.canStop && !this.handled) {
+      const reachedStop =
+        (this.direction.y >= 0 && this.tileY >= this.stopTile.y) ||
+        (this.direction.y < 0 && this.tileY <= this.stopTile.y);
+      if (reachedStop) {
+        this.tileY = this.stopTile.y;
+        this.state = 'stopped';
+        this.stopTimer = 70;
+        world.handleCarStop(this);
       }
     }
 
@@ -272,19 +330,9 @@ class Car {
   }
 
   draw(ctx, world) {
-    const drawPos = world.isoToScreen(this.tileX, this.tileY);
+    const drawPos = world.getTileScreenCenter(this.tileX, this.tileY);
     const drawX = drawPos.x;
     const drawY = drawPos.y;
-
-    ctx.save();
-    const directionScreen = world.isoToScreen(
-      this.tileX + this.direction.x,
-      this.tileY + this.direction.y
-    );
-    const angle = Math.atan2(directionScreen.y - drawY, directionScreen.x - drawX);
-    ctx.translate(drawX, drawY);
-    ctx.rotate(angle);
-    ctx.translate(-drawX, -drawY);
 
     if (this.sprite?.complete && this.sprite.naturalWidth > 0) {
       ctx.drawImage(this.sprite, drawX - this.width / 2, drawY - this.height / 2, this.width, this.height);
@@ -292,19 +340,19 @@ class Car {
       ctx.fillStyle = '#333';
       ctx.fillRect(drawX - this.width / 2, drawY - this.height / 2, this.width, this.height);
     }
-    ctx.restore();
   }
 }
 
 class GameWorld {
-  constructor({ canvas, ctx, ui, carSprites, terrainSprites }) {
+  constructor({ canvas, ctx, ui, carSprites, terrainSprites, mapData }) {
     this.canvas = canvas;
     this.ctx = ctx;
     this.ui = ui;
     this.camera = { x: 0, y: 0 };
-    this.tileSize = 128;
-    this.tileHeight = 64;
-    this.tileScale = this.tileSize / 512;
+    this.tileSize = 100;
+    this.tileSpriteHeight = 58;
+    this.tileHeight = Math.round(this.tileSpriteHeight * 0.8);
+    this.tileScale = this.tileSize / 256;
     this.origin = { x: canvas.width / 2, y: 160 };
     this.money = 500;
     this.totalVisitors = 0;
@@ -313,27 +361,72 @@ class GameWorld {
     this.activePets = 0;
     this.completedVisits = 0;
     this.reviewScore = 0;
+    this.reviewCount = 0;
+    this.reviewScores = { fun: 0, food: 0, facilities: 0 };
     this.reviewRidesPerStar = 40;
+    this.reviewInterval = 180000;
+    this.lastReviewTime = 0;
+    this.upkeepInterval = 180000;
+    this.lastUpkeepTime = 0;
+    this.audioReady = false;
+    this.sleighbellThreshold = 40;
+    this.sleighbellCooldown = 20000;
+    this.lastSleighbellTime = 0;
+    this.chimeCooldown = 20000;
+    this.lastChimeTime = 0;
+    this.billSoundCooldown = 20000;
+    this.lastBillSoundTime = 0;
+    this.buildSoundCooldown = 4000;
+    this.lastBuildSoundTime = 0;
+    this.errorSoundCooldown = 2000;
+    this.lastErrorSoundTime = 0;
+    this.joystickVector = { x: 0, y: 0 };
+    this.joystickSpeed = 2.5;
+    this.keySpeed = 4;
+    this.zoom = 0.8;
+    this.mapWidthMultiplier = 1.4;
+    this.mapHeightMultiplier = 2.8;
+    this.entryOffsetX = 10;
+    this.mapData = mapData || null;
+    this.mapWidth = 0;
+    this.mapHeight = 0;
+    this.mapU = null;
+    this.mapV = null;
+    this.hasPositionedCamera = false;
+    this.waterLaneX = null;
+    this.beachLaneX = null;
+    this.grassBufferLaneX = null;
     this.buildings = [];
     this.agents = [];
     this.cars = [];
     this.lastSpawn = 0;
     this.spawnInterval = 2400;
     this.lastCarSpawn = 0;
-    this.carSpawnInterval = 2200;
+    this.baseCarSpawnInterval = 12000;
+    this.minCarSpawnInterval = 7000;
+    this.carSpawnRampVisits = 1200;
+    this.carFollowDistance = 0.85;
+    this.carLaneTolerance = 0.15;
     this.keys = { up: false, down: false, left: false, right: false };
     this.selectedItem = null;
     this.messageTimeout = null;
     this.entranceTile = { x: -6, y: -10 };
     this.exitTile = { x: -6, y: -8 };
-    this.dropoffStop = { x: -8, y: -10 };
-    this.pickupStop = { x: -7, y: -8 };
+    this.entrancePathTile = null;
+    this.exitPathTile = null;
+    this.roadLaneX = this.entranceTile.x;
+    this.dropoffStop = { x: this.roadLaneX, y: -10 };
+    this.pickupStop = { x: this.roadLaneX, y: -8 };
     this.roadBounds = { minY: -14, maxY: -2 };
     this.mapBounds = { minX: -12, maxX: 12, minY: -12, maxY: 12 };
     this.carSprites = carSprites;
     this.terrainSprites = terrainSprites;
-    this.pathTiles = this.createPathTiles();
-    this.roadTiles = this.createRoadTiles();
+    if (this.mapData) {
+      this.initMapFromData(this.mapData);
+    } else {
+      this.pathTiles = this.createPathTiles();
+      this.roadTiles = this.createRoadTiles();
+    }
   }
 
   setSelectedItem(item) {
@@ -345,45 +438,322 @@ class GameWorld {
     this.origin.y = 160;
   }
 
+  getScaledTileSize() {
+    return this.tileSize * this.zoom;
+  }
+
+  getScaledTileHeight() {
+    return this.tileHeight * this.zoom;
+  }
+
+  getScaledSpriteHeight() {
+    return this.tileSpriteHeight * this.zoom;
+  }
+
+  setMapBoundsFromScreen(
+    widthMultiplier = this.mapWidthMultiplier,
+    heightMultiplier = this.mapHeightMultiplier,
+    marginTiles = 2
+  ) {
+    if (this.mapData) {
+      this.setMapBoundsFromMap();
+      return;
+    }
+    const halfW = this.getScaledTileSize() / 2;
+    const halfH = this.getScaledTileHeight() / 2;
+    const mapWidth = this.canvas.width * widthMultiplier;
+    const mapHeight = this.canvas.height * heightMultiplier;
+    const uRange = mapWidth / halfW;
+    const vRange = mapHeight / halfH;
+    const entryU = this.entranceTile.x - this.entranceTile.y;
+    const entryV = this.entranceTile.x + this.entranceTile.y;
+    const minU = entryU - marginTiles;
+    const minV = entryV - marginTiles;
+    const maxU = minU + uRange;
+    const maxV = minV + vRange;
+    this.mapU = { min: minU, max: maxU };
+    this.mapV = { min: minV, max: maxV };
+    this.mapBounds = this.getMapTileBounds();
+    this.refreshTerrain();
+  }
+
+  refreshTerrain() {
+    if (this.mapData) {
+      this.buildMapIndices();
+      return;
+    }
+    this.pathTiles = this.createPathTiles();
+    this.roadLaneX = this.entranceTile.x;
+    const bounds = this.getMapTileBounds();
+    this.waterLaneX = this.roadLaneX - 3;
+    this.beachLaneX = this.roadLaneX - 2;
+    this.grassBufferLaneX = this.roadLaneX - 1;
+    this.roadBounds = { minY: bounds.minY + 3, maxY: bounds.maxY };
+    this.dropoffStop = { x: this.roadLaneX, y: this.entranceTile.y };
+    this.pickupStop = { x: this.roadLaneX, y: this.entranceTile.y + 2 };
+    this.roadTiles = this.createRoadTiles();
+    this.entrancePathTile = this.findClosestPathTile(this.entranceTile) || this.entranceTile;
+    this.exitPathTile = this.findClosestPathTile(this.exitTile) || this.exitTile;
+  }
+
+  setMapBoundsFromMap() {
+    if (!this.mapData) return;
+    this.mapBounds = {
+      minX: 0,
+      minY: 0,
+      maxX: this.mapWidth - 1,
+      maxY: this.mapHeight - 1
+    };
+    this.mapU = {
+      min: this.mapBounds.minX - this.mapBounds.maxY,
+      max: this.mapBounds.maxX - this.mapBounds.minY
+    };
+    this.mapV = {
+      min: this.mapBounds.minX + this.mapBounds.minY,
+      max: this.mapBounds.maxX + this.mapBounds.maxY
+    };
+  }
+
+  initMapFromData(mapData) {
+    this.mapData = mapData;
+    this.mapWidth = mapData.width;
+    this.mapHeight = mapData.height;
+    this.setMapBoundsFromMap();
+    this.buildMapIndices();
+  }
+
+  buildMapIndices() {
+    if (!this.mapData) return;
+    this.pathTiles = new Set();
+    this.roadTiles = new Set();
+    const entryTiles = [];
+    const roadXCounts = new Map();
+    let roadMinY = Infinity;
+    let roadMaxY = -Infinity;
+
+    for (let row = 0; row < this.mapHeight; row++) {
+      const line = this.mapData.grid[row] || [];
+      for (let col = 0; col < this.mapWidth; col++) {
+        const tileType = line[col] || 'G';
+        const tileX = this.mapBounds.minX + col;
+        const tileY = this.mapBounds.minY + row;
+        if (tileType === 'P') {
+          this.pathTiles.add(this.tileKey(tileX, tileY));
+        }
+        if (tileType === 'R' || tileType === 'E') {
+          this.roadTiles.add(this.tileKey(tileX, tileY));
+          roadXCounts.set(tileX, (roadXCounts.get(tileX) || 0) + 1);
+          roadMinY = Math.min(roadMinY, tileY);
+          roadMaxY = Math.max(roadMaxY, tileY);
+        }
+        if (tileType === 'E') {
+          entryTiles.push({ x: tileX, y: tileY });
+        }
+      }
+    }
+
+    let roadLaneX = this.roadLaneX;
+    if (roadXCounts.size) {
+      roadLaneX = [...roadXCounts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+    }
+    this.roadLaneX = roadLaneX;
+
+    if (entryTiles.length) {
+      entryTiles.sort((a, b) => a.y - b.y);
+      this.exitTile = entryTiles[0];
+      this.entranceTile = entryTiles[entryTiles.length - 1];
+    } else {
+      const roadEntries = [...this.roadTiles].map((key) => {
+        const [x, y] = key.split(',').map(Number);
+        return { x, y };
+      });
+      roadEntries.sort((a, b) => a.y - b.y);
+      this.exitTile = roadEntries[0] || { x: roadLaneX, y: this.mapBounds.minY };
+      this.entranceTile = roadEntries[roadEntries.length - 1] || {
+        x: roadLaneX,
+        y: this.mapBounds.maxY
+      };
+    }
+
+    if (roadMinY === Infinity) {
+      roadMinY = this.mapBounds.minY;
+      roadMaxY = this.mapBounds.maxY;
+    }
+    this.roadBounds = { minY: roadMinY, maxY: roadMaxY };
+    this.dropoffStop = { x: this.entranceTile.x, y: this.entranceTile.y };
+    this.pickupStop = { x: this.exitTile.x, y: this.exitTile.y };
+    this.entrancePathTile = this.findClosestPathTile(this.entranceTile) || this.entranceTile;
+    this.exitPathTile = this.findClosestPathTile(this.exitTile) || this.exitTile;
+  }
+
+  getMapTileBounds() {
+    if (this.mapData && this.mapBounds) return this.mapBounds;
+    if (!this.mapU || !this.mapV) return this.mapBounds;
+    const minX = Math.floor((this.mapU.min + this.mapV.min) / 2);
+    const maxX = Math.ceil((this.mapU.max + this.mapV.max) / 2);
+    const minY = Math.floor((this.mapV.min - this.mapU.max) / 2);
+    const maxY = Math.ceil((this.mapV.max - this.mapU.min) / 2);
+    return { minX, maxX, minY, maxY };
+  }
+
+  getMapTileType(tileX, tileY) {
+    if (!this.mapData) return null;
+    const row = tileY - this.mapBounds.minY;
+    const col = tileX - this.mapBounds.minX;
+    const line = this.mapData.grid[row];
+    if (!line) return null;
+    return line[col] || 'G';
+  }
+
+  positionCameraAtTopLeft() {
+    const bounds = this.getMapTileBounds();
+    if (!bounds) return;
+    const halfW = this.getScaledTileSize() / 2;
+    const halfH = this.getScaledTileHeight() / 2;
+    this.camera.x = (bounds.minX - bounds.minY) * halfW + this.origin.x;
+    this.camera.y = (bounds.minX + bounds.minY) * halfH + this.origin.y;
+    this.clampCamera();
+  }
+
+  positionCameraAtTile(tileX, tileY, offsetX = 0, offsetY = 0) {
+    const halfW = this.getScaledTileSize() / 2;
+    const halfH = this.getScaledTileHeight() / 2;
+    this.camera.x = (tileX - tileY) * halfW + this.origin.x - this.canvas.width / 2 + offsetX;
+    this.camera.y = (tileX + tileY) * halfH + this.origin.y - this.canvas.height / 2 + offsetY;
+    this.clampCamera();
+  }
+
+  positionCameraAtEntry(offsetX = 0) {
+    const entry = this.entranceTile || { x: 0, y: 0 };
+    this.positionCameraAtTile(entry.x, entry.y, offsetX, 0);
+  }
+
+  clampCamera() {
+    if (!this.mapU || !this.mapV) return;
+    const halfW = this.getScaledTileSize() / 2;
+    const halfH = this.getScaledTileHeight() / 2;
+    let minX = this.mapU.min * halfW + this.origin.x;
+    let maxX = this.mapU.max * halfW + this.origin.x - this.canvas.width;
+    let minY = this.mapV.min * halfH + this.origin.y;
+    let maxY = this.mapV.max * halfH + this.origin.y - this.canvas.height;
+    if (maxX < minX) {
+      const mid = (minX + maxX) / 2;
+      minX = mid;
+      maxX = mid;
+    }
+    if (maxY < minY) {
+      const mid = (minY + maxY) / 2;
+      minY = mid;
+      maxY = mid;
+    }
+    this.camera.x = Math.min(Math.max(this.camera.x, minX), maxX);
+    this.camera.y = Math.min(Math.max(this.camera.y, minY), maxY);
+  }
+
   tileKey(x, y) {
     return `${x},${y}`;
   }
 
   createPathTiles() {
     const tiles = new Set();
-    for (let y = -14; y <= 2; y++) {
-      tiles.add(this.tileKey(-6, y));
+    const bounds = this.getMapTileBounds();
+    const margin = 3;
+    const minX = bounds.minX + margin;
+    const maxX = bounds.maxX - margin;
+    const pathMinY = bounds.minY + margin + 1;
+    const pathMaxY = bounds.maxY - margin;
+
+    const entryY = pathMaxY;
+    const entryX = Math.min(Math.max(minX + this.entryOffsetX, minX), maxX);
+    this.entranceTile = { x: entryX, y: entryY };
+    this.exitTile = { x: Math.min(entryX + 1, maxX), y: entryY };
+
+    const entryPathLength = 3;
+    for (let i = 0; i < entryPathLength; i++) {
+      tiles.add(this.tileKey(entryX, entryY - i));
     }
-    for (let x = -11; x <= -1; x++) {
-      tiles.add(this.tileKey(x, -6));
+
+    const blockWidth = Math.max(8, Math.floor((maxX - minX + 1) * 0.4));
+    const blockHeight = Math.max(6, Math.floor((pathMaxY - pathMinY + 1) * 0.25));
+    const blockCenterX = Math.min(Math.max(entryX, minX + 2), maxX - 2);
+    let blockLeft = blockCenterX - Math.floor(blockWidth / 2);
+    let blockRight = blockLeft + blockWidth - 1;
+    if (blockLeft < minX) {
+      blockRight += minX - blockLeft;
+      blockLeft = minX;
     }
-    for (let x = -9; x <= -3; x++) {
-      tiles.add(this.tileKey(x, -2));
+    if (blockRight > maxX) {
+      blockLeft -= blockRight - maxX;
+      blockRight = maxX;
     }
+    blockLeft = Math.max(blockLeft, minX);
+    blockRight = Math.min(blockRight, maxX);
+
+    const gap = 3;
+    let blockBottom = entryY - entryPathLength - gap;
+    const minBlockBottom = pathMinY + blockHeight - 1;
+    if (blockBottom < minBlockBottom) blockBottom = minBlockBottom;
+    if (blockBottom > pathMaxY) blockBottom = pathMaxY;
+    let blockTop = blockBottom - blockHeight + 1;
+    if (blockTop < pathMinY) {
+      blockTop = pathMinY;
+      blockBottom = blockTop + blockHeight - 1;
+    }
+
+    for (let x = blockLeft; x <= blockRight; x++) {
+      for (let y = blockTop; y <= blockBottom; y++) {
+        tiles.add(this.tileKey(x, y));
+      }
+    }
+
+    const entryPathTop = entryY - (entryPathLength - 1);
+    for (let y = entryPathTop - 1; y >= blockBottom; y--) {
+      tiles.add(this.tileKey(entryX, y));
+    }
+
+    const midY = Math.floor((blockTop + blockBottom) / 2);
+    const midX = Math.floor((blockLeft + blockRight) / 2);
+    const spurLength = 3;
+    for (let i = 1; i <= spurLength; i++) {
+      if (blockTop - i >= pathMinY) tiles.add(this.tileKey(midX, blockTop - i));
+      if (blockLeft - i >= minX) tiles.add(this.tileKey(blockLeft - i, midY));
+      if (blockRight + i <= maxX) tiles.add(this.tileKey(blockRight + i, midY));
+    }
+
+    tiles.add(this.tileKey(this.entranceTile.x, this.entranceTile.y));
+    tiles.add(this.tileKey(this.exitTile.x, this.exitTile.y));
     return tiles;
   }
 
   createRoadTiles() {
     const tiles = new Set();
     for (let y = this.roadBounds.minY; y <= this.roadBounds.maxY; y++) {
-      tiles.add(this.tileKey(this.dropoffStop.x, y));
-      tiles.add(this.tileKey(this.pickupStop.x, y));
+      tiles.add(this.tileKey(this.roadLaneX, y));
     }
     return tiles;
   }
 
+  getTileYOffset() {
+    return this.getScaledTileHeight() / 2 - this.getScaledSpriteHeight() / 2;
+  }
+
+  getTileScreenCenter(tileX, tileY) {
+    const screen = this.isoToScreen(tileX, tileY);
+    return { x: screen.x, y: screen.y + this.getTileYOffset() };
+  }
+
   isoToScreen(tileX, tileY) {
-    const screenX = (tileX - tileY) * (this.tileSize / 2) + this.origin.x - this.camera.x;
-    const screenY = (tileX + tileY) * (this.tileHeight / 2) + this.origin.y - this.camera.y;
+    const screenX = (tileX - tileY) * (this.getScaledTileSize() / 2) + this.origin.x - this.camera.x;
+    const screenY = (tileX + tileY) * (this.getScaledTileHeight() / 2) + this.origin.y - this.camera.y;
     return { x: screenX, y: screenY };
   }
 
   drawTileImage(image, tileX, tileY) {
     if (!image?.complete || image.naturalWidth === 0) return;
-    const screen = this.isoToScreen(tileX, tileY);
+    const screen = this.getTileScreenCenter(tileX, tileY);
     const trim = image.trim;
     if (trim) {
-      const destW = this.tileSize;
+      const destW = this.getScaledTileSize();
       const scale = destW / trim.width;
       const destH = trim.height * scale;
       this.ctx.drawImage(
@@ -393,18 +763,20 @@ class GameWorld {
         trim.width,
         trim.height,
         screen.x - destW / 2,
-        screen.y + this.tileHeight / 2 - destH,
+        screen.y - destH / 2,
         destW,
         destH
       );
       return;
     }
+    const destW = this.getScaledTileSize();
+    const destH = this.getScaledSpriteHeight();
     this.ctx.drawImage(
       image,
-      screen.x - this.tileSize / 2,
-      screen.y - this.tileSize / 2,
-      this.tileSize,
-      this.tileSize
+      screen.x - destW / 2,
+      screen.y - destH / 2,
+      destW,
+      destH
     );
   }
 
@@ -430,11 +802,19 @@ class GameWorld {
       minY = Math.min(minY, world.y);
       maxY = Math.max(maxY, world.y);
     });
-    return {
+    const bounds = {
       minX: Math.floor(minX) - padding,
       maxX: Math.ceil(maxX) + padding,
       minY: Math.floor(minY) - padding,
       maxY: Math.ceil(maxY) + padding
+    };
+    const mapBounds = this.getMapTileBounds();
+    if (!mapBounds) return bounds;
+    return {
+      minX: Math.max(bounds.minX, mapBounds.minX),
+      maxX: Math.min(bounds.maxX, mapBounds.maxX),
+      minY: Math.max(bounds.minY, mapBounds.minY),
+      maxY: Math.min(bounds.maxY, mapBounds.maxY)
     };
   }
 
@@ -451,9 +831,9 @@ class GameWorld {
 
   drawIsoDiamond(tileX, tileY, color) {
     const { ctx } = this;
-    const center = this.isoToScreen(tileX, tileY);
-    const halfW = this.tileSize / 2;
-    const halfH = this.tileHeight / 2;
+    const center = this.getTileScreenCenter(tileX, tileY);
+    const halfW = this.getScaledTileSize() / 2;
+    const halfH = this.getScaledSpriteHeight() / 2;
     ctx.beginPath();
     ctx.moveTo(center.x, center.y - halfH);
     ctx.lineTo(center.x + halfW, center.y);
@@ -467,11 +847,31 @@ class GameWorld {
     ctx.stroke();
   }
 
-  getFootprint(category) {
-    if (category === 'service' || category === 'transport') {
+  getFootprint(item) {
+    if (item?.tileWidth && item?.tileHeight) {
+      return { tileWidth: item.tileWidth, tileHeight: item.tileHeight };
+    }
+    if (item?.category === 'service') {
       return { tileWidth: 2, tileHeight: 2 };
     }
     return { tileWidth: 1, tileHeight: 1 };
+  }
+
+  findClosestPathTile(tile) {
+    if (!tile || !this.pathTiles?.size) return null;
+    const startKey = this.tileKey(tile.x, tile.y);
+    if (this.pathTiles.has(startKey)) return { x: tile.x, y: tile.y };
+    let closest = null;
+    let minDist = Infinity;
+    this.pathTiles.forEach((key) => {
+      const [x, y] = key.split(',').map(Number);
+      const dist = Math.abs(x - tile.x) + Math.abs(y - tile.y);
+      if (dist < minDist) {
+        minDist = dist;
+        closest = { x, y };
+      }
+    });
+    return closest;
   }
 
   findAdjacentPathTile(building) {
@@ -499,10 +899,32 @@ class GameWorld {
     return candidates[0];
   }
 
+  handleAgentExit(agent) {
+    if (agent.isStaff) return;
+    if (agent.isPet) {
+      this.activePets = Math.max(0, this.activePets - 1);
+    } else {
+      this.activeVisitors = Math.max(0, this.activeVisitors - 1);
+    }
+  }
+
+  sendAgentToExit(agent) {
+    agent.leaving = true;
+    const exitTarget = this.exitPathTile || this.exitTile;
+    const start = { x: Math.round(agent.tileX), y: Math.round(agent.tileY) };
+    const path = this.findPath(start, exitTarget);
+    agent.assignPath(path, null);
+  }
+
   assignAgentTarget(agent) {
-    const target = this.pickTarget(agent.isPet);
+    if (agent.leaving) {
+      this.sendAgentToExit(agent);
+      return;
+    }
+    const target = this.pickTarget(agent);
     if (!target) {
-      agent.assignPath([], null);
+      agent.leaving = true;
+      this.sendAgentToExit(agent);
       return;
     }
 
@@ -569,9 +991,125 @@ class GameWorld {
     message.className = 'chatMessage';
     message.textContent = text;
     this.ui.chatMessages.prepend(message);
-    const messages = [...this.ui.chatMessages.querySelectorAll('.chatMessage')];
-    if (messages.length > 8) {
-      messages.slice(8).forEach((item) => item.remove());
+    setTimeout(() => {
+      message.classList.add('fading');
+    }, 10000);
+    setTimeout(() => {
+      message.remove();
+    }, 11000);
+  }
+
+  spawnBusinessStaff(tile) {
+    const target = this.findClosestPathTile(tile);
+    const staff = new Agent({
+      tileX: tile.x,
+      tileY: tile.y,
+      isPet: false,
+      speed: 0.035,
+      emoji: '💼',
+      isStaff: true
+    });
+    if (target) {
+      staff.path = [target];
+    }
+    this.agents.push(staff);
+  }
+
+  initAudio() {
+    if (this.audioReady) return;
+    if (typeof window.initStrudel === 'function') {
+      window.initStrudel();
+      this.audioReady = true;
+    }
+  }
+
+  playSleighbells() {
+    if (!this.audioReady) return;
+    const now = performance.now();
+    if (now - this.lastSleighbellTime < this.sleighbellCooldown) return;
+    const soundFn = window.s || window.sound;
+    if (typeof soundFn !== 'function') return;
+    const pattern = soundFn('anvil');
+    if (pattern?.play) {
+      pattern.play();
+      this.lastSleighbellTime = now;
+      setTimeout(() => {
+        if (typeof window.hush === 'function') {
+          window.hush();
+        }
+      }, 1200);
+    }
+  }
+
+  playHandchimes() {
+    if (!this.audioReady) return;
+    const now = performance.now();
+    if (now - this.lastChimeTime < this.chimeCooldown) return;
+    const soundFn = window.s || window.sound;
+    if (typeof soundFn !== 'function') return;
+    const pattern = soundFn('handchimes(19)');
+    if (pattern?.play) {
+      pattern.play();
+      this.lastChimeTime = now;
+      setTimeout(() => {
+        if (typeof window.hush === 'function') {
+          window.hush();
+        }
+      }, 1200);
+    }
+  }
+
+  playBillSound() {
+    if (!this.audioReady) return;
+    const now = performance.now();
+    if (now - this.lastBillSoundTime < this.billSoundCooldown) return;
+    const soundFn = window.s || window.sound;
+    if (typeof soundFn !== 'function') return;
+    const pattern = soundFn('harmonica');
+    if (pattern?.play) {
+      pattern.play();
+      this.lastBillSoundTime = now;
+      setTimeout(() => {
+        if (typeof window.hush === 'function') {
+          window.hush();
+        }
+      }, 1200);
+    }
+  }
+
+  playBuildSound() {
+    if (!this.audioReady) return;
+    const now = performance.now();
+    if (now - this.lastBuildSoundTime < this.buildSoundCooldown) return;
+    const soundFn = window.s || window.sound;
+    if (typeof soundFn !== 'function') return;
+    const pattern = soundFn('ratchet');
+    if (pattern?.play) {
+      pattern.play();
+      this.lastBuildSoundTime = now;
+      setTimeout(() => {
+        if (typeof window.hush === 'function') {
+          window.hush();
+        }
+      }, 700);
+    }
+  }
+
+  playErrorSound() {
+    if (!this.audioReady) return;
+    const now = performance.now();
+    if (now - this.lastErrorSoundTime < this.errorSoundCooldown) return;
+    const soundFn = window.s || window.sound;
+    if (typeof soundFn !== 'function') return;
+    const pattern = soundFn('didgeridoo(12)');
+    if (pattern?.play) {
+      pattern.play();
+      this.lastErrorSoundTime = now;
+      setTimeout(() => {
+        if (typeof window.hush === 'function') {
+          window.hush();
+        }
+      }, 900);
     }
   }
 
@@ -586,6 +1124,24 @@ class GameWorld {
     }
     if (this.ui.reviewStars) {
       this.ui.reviewStars.textContent = this.formatStars(reviewScore);
+    }
+    if (this.ui.reviewFun) {
+      this.ui.reviewFun.textContent = (this.reviewScores.fun || 0).toFixed(1);
+    }
+    if (this.ui.reviewFood) {
+      this.ui.reviewFood.textContent = (this.reviewScores.food || 0).toFixed(1);
+    }
+    if (this.ui.reviewFacilities) {
+      this.ui.reviewFacilities.textContent = (this.reviewScores.facilities || 0).toFixed(1);
+    }
+    if (this.ui.reviewFunStars) {
+      this.ui.reviewFunStars.textContent = this.formatStars(this.reviewScores.fun || 0);
+    }
+    if (this.ui.reviewFoodStars) {
+      this.ui.reviewFoodStars.textContent = this.formatStars(this.reviewScores.food || 0);
+    }
+    if (this.ui.reviewFacilitiesStars) {
+      this.ui.reviewFacilitiesStars.textContent = this.formatStars(this.reviewScores.facilities || 0);
     }
   }
 
@@ -607,30 +1163,109 @@ class GameWorld {
   }
 
   calculateReviewScore() {
-    const paidRideCount = this.getPaidRideCount();
-    if (paidRideCount === 0) {
-      this.reviewScore = 0;
-      return this.reviewScore;
-    }
-    const cap = this.getReviewCap();
-    const rideScore = this.completedVisits / this.reviewRidesPerStar;
-    this.reviewScore = Math.max(0, Math.min(cap, rideScore, 5));
-    return this.reviewScore;
+    return Math.max(0, Math.min(this.reviewScore, 5));
+  }
+
+  getParkBalanceScore() {
+    if (!this.buildings.length) return { fun: 0, food: 0, facilities: 0, overall: 0 };
+    const guests = Math.max(1, this.activeVisitors + this.activePets);
+    let funUnits = 0;
+    let foodUnits = 0;
+    let essentialUnits = 0;
+    const uniqueTypes = new Set();
+
+    this.buildings.forEach((building) => {
+      const size = building.tileWidth * building.tileHeight;
+      uniqueTypes.add(building.type);
+      if (building.category === 'food') {
+        foodUnits += size;
+      } else if (building.category === 'facility') {
+        essentialUnits += size;
+      } else if (building.category === 'attraction' || building.category === 'service' || building.category === 'internet') {
+        funUnits += size;
+      } else if (building.category === 'pet') {
+        funUnits += size * 0.5;
+        foodUnits += size * 0.3;
+      }
+    });
+
+    const funNeeded = Math.max(1, guests / 8);
+    const foodNeeded = Math.max(1, guests / 12);
+    const essentialNeeded = Math.max(1, guests / 15);
+    const varietyNeeded = Math.max(3, guests / 10);
+
+    const funScore = Math.min(1, funUnits / funNeeded);
+    const foodScore = Math.min(1, foodUnits / foodNeeded);
+    const facilitiesScore = Math.min(1, essentialUnits / essentialNeeded);
+    const varietyScore = Math.min(1, uniqueTypes.size / varietyNeeded);
+
+    const overall = funScore * 0.45 + foodScore * 0.25 + facilitiesScore * 0.2 + varietyScore * 0.1;
+    return { fun: funScore, food: foodScore, facilities: facilitiesScore, overall };
+  }
+
+  generateReview() {
+    if (!this.buildings.length) return;
+    const balanceScore = this.getParkBalanceScore();
+    const noise = (Math.random() - 0.5) * 0.4;
+    const funReview = Math.max(0, Math.min(5, balanceScore.fun * 5 + noise));
+    const foodReview = Math.max(0, Math.min(5, balanceScore.food * 5 + noise));
+    const facilitiesReview = Math.max(0, Math.min(5, balanceScore.facilities * 5 + noise));
+    const overallReview = Math.max(0, Math.min(5, balanceScore.overall * 5 + noise));
+    this.reviewScores = {
+      fun: (this.reviewScores.fun * this.reviewCount + funReview) / (this.reviewCount + 1),
+      food: (this.reviewScores.food * this.reviewCount + foodReview) / (this.reviewCount + 1),
+      facilities: (this.reviewScores.facilities * this.reviewCount + facilitiesReview) / (this.reviewCount + 1)
+    };
+    this.reviewScore = (this.reviewScore * this.reviewCount + overallReview) / (this.reviewCount + 1);
+    this.reviewCount += 1;
+    this.playHandchimes();
+  }
+
+  calculateUpkeepCost() {
+    if (!this.buildings.length) return 0;
+    let cost = 25;
+    this.buildings.forEach((building) => {
+      const size = building.tileWidth * building.tileHeight;
+      let rate = 4;
+      if (building.category === 'facility') rate = 3;
+      if (building.category === 'food') rate = 4;
+      if (building.category === 'service') rate = 7;
+      if (building.category === 'internet') rate = 5;
+      if (building.category === 'pet') rate = 4;
+      cost += rate * size;
+    });
+    const total = Math.round(cost);
+    const water = Math.round(total * 0.4);
+    const electricity = Math.round(total * 0.35);
+    const wages = Math.max(0, total - water - electricity);
+    return { total, water, electricity, wages };
+  }
+
+  applyUpkeepCost(breakdown) {
+    if (!breakdown?.total) return;
+    this.money = Math.max(0, this.money - breakdown.total);
+    this.addChatMessage(
+      `⚙️ Operating costs: -$${breakdown.total} (Water $${breakdown.water}, Electricity $${breakdown.electricity}, Wages $${breakdown.wages})`
+    );
+    this.playBillSound();
   }
 
   adjustCamera(delta) {
     const speed = 0.35 * delta * 16;
-    if (this.keys.left) this.camera.x -= speed * 10;
-    if (this.keys.right) this.camera.x += speed * 10;
-    if (this.keys.up) this.camera.y -= speed * 10;
-    if (this.keys.down) this.camera.y += speed * 10;
+    if (this.keys.left) this.camera.x -= speed * this.keySpeed;
+    if (this.keys.right) this.camera.x += speed * this.keySpeed;
+    if (this.keys.up) this.camera.y -= speed * this.keySpeed;
+    if (this.keys.down) this.camera.y += speed * this.keySpeed;
+    this.camera.x += this.joystickVector.x * speed * this.joystickSpeed;
+    this.camera.y += this.joystickVector.y * speed * this.joystickSpeed;
+    this.clampCamera();
   }
 
   screenToWorld(x, y) {
     const adjustedX = x + this.camera.x - this.origin.x;
-    const adjustedY = y + this.camera.y - this.origin.y;
-    const tileX = (adjustedY / (this.tileHeight / 2) + adjustedX / (this.tileSize / 2)) / 2;
-    const tileY = (adjustedY / (this.tileHeight / 2) - adjustedX / (this.tileSize / 2)) / 2;
+    const adjustedY = y + this.camera.y - this.origin.y - this.getTileYOffset();
+    const tileX = (adjustedY / (this.getScaledTileHeight() / 2) + adjustedX / (this.getScaledTileSize() / 2)) / 2;
+    const tileY = (adjustedY / (this.getScaledTileHeight() / 2) - adjustedX / (this.getScaledTileSize() / 2)) / 2;
     return { x: tileX, y: tileY };
   }
 
@@ -639,10 +1274,11 @@ class GameWorld {
     const { type, cost, price, petPrice, category } = this.selectedItem;
     if (this.money < cost) {
       this.showMessage('Not enough money!');
+      this.playErrorSound();
       return;
     }
 
-    const { tileWidth, tileHeight } = this.getFootprint(category);
+    const { tileWidth, tileHeight } = this.getFootprint(this.selectedItem);
     const tileX = Math.round(worldX);
     const tileY = Math.round(worldY);
     const building = new Building({
@@ -670,6 +1306,7 @@ class GameWorld {
 
     if (overlaps) {
       this.showMessage('Too close to another building!');
+      this.playErrorSound();
       return;
     }
 
@@ -677,6 +1314,7 @@ class GameWorld {
       for (let y = building.tileY; y < building.tileY + building.tileHeight; y++) {
         if (this.pathTiles.has(this.tileKey(x, y))) {
           this.showMessage('Cannot build on a path!');
+          this.playErrorSound();
           return;
         }
       }
@@ -685,6 +1323,7 @@ class GameWorld {
     const adjacentPath = this.findAdjacentPathTile(building);
     if (!adjacentPath) {
       this.showMessage('Buildings must be placed next to a path!');
+      this.playErrorSound();
       return;
     }
 
@@ -692,11 +1331,14 @@ class GameWorld {
     building.pathTile = adjacentPath;
     this.buildings.push(building);
     this.showMessage(`Built ${type}!`);
+    this.playBuildSound();
   }
 
-  pickTarget(isPet) {
+  pickTarget(agent) {
+    const remaining = Math.max(0, (agent.budget || 0) - (agent.spent || 0));
     const eligible = this.buildings.filter((building) => {
-      return isPet ? building.petPrice > 0 : building.price > 0;
+      const price = agent.isPet ? building.petPrice : building.price;
+      return price > 0 && price <= remaining;
     });
     if (!eligible.length) return null;
     const building = eligible[Math.floor(Math.random() * eligible.length)];
@@ -704,12 +1346,17 @@ class GameWorld {
   }
 
   spawnAgentsAtEntrance({ visitors, pets }) {
+    const spawnTile = this.entrancePathTile || this.entranceTile;
     for (let i = 0; i < visitors; i++) {
+      const budget = Math.round(20 + Math.random() * 60 + this.reviewScore * 6);
+      const spendLimit = budget * (0.6 + Math.random() * 0.35);
       const agent = new Agent({
-        tileX: this.entranceTile.x,
-        tileY: this.entranceTile.y,
+        tileX: spawnTile.x,
+        tileY: spawnTile.y,
         isPet: false,
-        speed: 0.04 + Math.random() * 0.02
+        speed: 0.04 + Math.random() * 0.02,
+        budget,
+        spendLimit
       });
       this.agents.push(agent);
       this.totalVisitors += 1;
@@ -717,11 +1364,15 @@ class GameWorld {
     this.activeVisitors += visitors;
 
     for (let i = 0; i < pets; i++) {
+      const budget = Math.round(15 + Math.random() * 45 + this.reviewScore * 4);
+      const spendLimit = budget * (0.6 + Math.random() * 0.35);
       const pet = new Agent({
-        tileX: this.entranceTile.x,
-        tileY: this.entranceTile.y,
+        tileX: spawnTile.x,
+        tileY: spawnTile.y,
         isPet: true,
-        speed: 0.035 + Math.random() * 0.02
+        speed: 0.035 + Math.random() * 0.02,
+        budget,
+        spendLimit
       });
       this.agents.push(pet);
       this.totalPets += 1;
@@ -730,26 +1381,52 @@ class GameWorld {
   }
 
   spawnCars(time) {
-    if (time - this.lastCarSpawn < this.carSpawnInterval) return;
+    const interval = this.getCarSpawnInterval();
+    if (time - this.lastCarSpawn < interval) return;
     this.lastCarSpawn = time;
 
     const spawnPickup = this.activeVisitors + this.activePets > 0 && Math.random() > 0.65;
     const role = spawnPickup ? 'pickup' : 'dropoff';
-    const { sprite, width } = this.pickRandomCarSprite();
-    const speed = 0.05 + Math.random() * 0.02;
+    const { sprite, width, type, speedMultiplier, canStop, ignoreTraffic } = this.pickRandomCarSprite();
+    const speed = (0.05 + Math.random() * 0.02) * (speedMultiplier || 1);
+
+    if (!canStop) {
+      const car = new Car({
+        tileX: this.roadLaneX,
+        tileY: this.roadBounds.minY,
+        speed,
+        direction: { x: 0, y: 1 },
+        stopTile: { x: this.roadLaneX, y: this.roadBounds.maxY + 2 },
+        role: 'pass',
+        sprite,
+        payload: null,
+        width,
+        type,
+        canStop,
+        ignoreTraffic
+      });
+      this.cars.push(car);
+      return;
+    }
 
     if (role === 'dropoff') {
       const payload = this.createArrivalPayload();
+      if (payload.visitors + payload.pets === 0) {
+        return;
+      }
       const car = new Car({
         tileX: this.dropoffStop.x,
-        tileY: this.roadBounds.minY - 2,
+        tileY: this.roadBounds.minY,
         speed,
         direction: { x: 0, y: 1 },
         stopTile: this.dropoffStop,
         role,
         sprite,
         payload,
-        width
+        width,
+        type,
+        canStop,
+        ignoreTraffic
       });
       this.cars.push(car);
       return;
@@ -758,50 +1435,91 @@ class GameWorld {
     const pickupCount = Math.min(this.activeVisitors + this.activePets, Math.floor(Math.random() * 3) + 1);
     const car = new Car({
       tileX: this.pickupStop.x,
-      tileY: this.roadBounds.minY - 2,
+      tileY: this.roadBounds.minY,
       speed,
       direction: { x: 0, y: 1 },
       stopTile: this.pickupStop,
       role,
       sprite,
       payload: { pickupCount },
-      width
+      width,
+      type,
+      canStop,
+      ignoreTraffic
+    });
+    this.cars.push(car);
+  }
+
+  spawnBillCar(breakdown) {
+    if (!breakdown?.total || !this.mapData) return;
+    if (this.cars.some((car) => car.role === 'bill')) return;
+    const car = new Car({
+      tileX: this.roadLaneX,
+      tileY: this.roadBounds.minY,
+      speed: 0.045,
+      direction: { x: 0, y: 1 },
+      stopTile: this.dropoffStop,
+      role: 'bill',
+      sprite: this.carSprites.delivery,
+      payload: { breakdown },
+      width: 84,
+      type: 'delivery',
+      canStop: true,
+      ignoreTraffic: false
     });
     this.cars.push(car);
   }
 
   pickRandomCarSprite() {
     const weighted = [
-      { key: 'sedan', weight: 5, width: 70 },
+      { key: 'sedan', weight: 6, width: 70 },
       { key: 'suv', weight: 5, width: 76 },
       { key: 'taxi', weight: 4, width: 70 },
       { key: 'motorbike', weight: 3, width: 52 },
       { key: 'truck', weight: 3, width: 90 },
-      { key: 'police', weight: 1, width: 78 },
-      { key: 'ambulance', weight: 1, width: 78 }
+      { key: 'police', weight: 1, width: 78, canStop: false, ignoreTraffic: true },
+      { key: 'ambulance', weight: 1, width: 78, canStop: false, ignoreTraffic: true },
+      { key: 'formula', weight: 1, width: 72, canStop: false, ignoreTraffic: true, speedMultiplier: 1.6 }
     ];
     const total = weighted.reduce((sum, item) => sum + item.weight, 0);
     let roll = Math.random() * total;
     for (const item of weighted) {
       roll -= item.weight;
       if (roll <= 0) {
-        return { sprite: this.carSprites[item.key], width: item.width };
+        return {
+          sprite: this.carSprites[item.key],
+          width: item.width,
+          type: item.key,
+          canStop: item.canStop !== false,
+          ignoreTraffic: item.ignoreTraffic === true,
+          speedMultiplier: item.speedMultiplier || 1
+        };
       }
     }
-    return { sprite: this.carSprites.sedan, width: 70 };
+    return { sprite: this.carSprites.sedan, width: 70, type: 'sedan', canStop: true, ignoreTraffic: false, speedMultiplier: 1 };
   }
 
   createArrivalPayload() {
-    const attractionLevel = Math.min(6, Math.max(1, Math.floor(this.buildings.length / 3) + 1));
-    const visitors = Math.max(1, Math.ceil(Math.random() * attractionLevel));
-    const petChance = Math.min(0.75, 0.2 + this.buildings.length * 0.03);
+    const paidRideCount = this.getPaidRideCount();
+    if (paidRideCount < 2) {
+      return { visitors: 0, pets: 0 };
+    }
+
+    const reviewScore = this.calculateReviewScore();
+    const reviewFactor = 0.2 + (reviewScore / 5) * 0.8;
+    const attractionLevel = Math.min(6, Math.max(1, Math.floor(paidRideCount / 3) + 1));
+    const visitors = Math.max(1, Math.ceil(Math.random() * attractionLevel * reviewFactor));
+    const petChance = Math.min(0.75, 0.2 + paidRideCount * 0.03) * reviewFactor;
     const pets = Math.random() > 1 - petChance ? Math.floor(Math.random() * Math.max(1, Math.floor(attractionLevel / 2))) : 0;
     return { visitors, pets };
   }
 
   handleCarStop(car) {
     if (car.handled) return;
-    if (car.role === 'dropoff') {
+    if (car.role === 'bill') {
+      this.spawnBusinessStaff({ x: car.tileX, y: car.tileY });
+      this.applyUpkeepCost(car.payload?.breakdown);
+    } else if (car.role === 'dropoff') {
       this.spawnAgentsAtEntrance(car.payload);
     } else {
       this.pickupAgentsAtExit(car.payload.pickupCount);
@@ -834,10 +1552,22 @@ class GameWorld {
     if (!building) return;
     const revenue = agent.isPet ? building.petPrice : building.price;
     if (revenue > 0) {
+      const remaining = Math.max(0, (agent.budget || 0) - (agent.spent || 0));
+      if (remaining < revenue) {
+        agent.leaving = true;
+        return;
+      }
+      agent.spent = (agent.spent || 0) + revenue;
       this.money += revenue;
       this.completedVisits += 1;
       const label = agent.isPet ? '🐾 Pet visit' : '🎟️ Visit';
       this.addChatMessage(`${label} +$${revenue.toFixed(0)}`);
+      if (revenue >= this.sleighbellThreshold) {
+        this.playSleighbells();
+      }
+      if (agent.spent >= (agent.spendLimit || agent.budget || 0)) {
+        agent.leaving = true;
+      }
     }
   }
 
@@ -846,7 +1576,42 @@ class GameWorld {
     this.spawnCars(time);
     this.agents = this.agents.filter((agent) => !agent.update(delta, this));
     this.cars = this.cars.filter((car) => !car.update(delta, this));
+    if (time - this.lastReviewTime >= this.reviewInterval) {
+      this.lastReviewTime = time;
+      this.generateReview();
+    }
+    if (time - this.lastUpkeepTime >= this.upkeepInterval) {
+      this.lastUpkeepTime = time;
+      const breakdown = this.calculateUpkeepCost();
+      if (breakdown?.total) {
+        this.spawnBillCar(breakdown);
+      }
+    }
     this.updateStats();
+  }
+
+  getCarSpawnInterval() {
+    const ramp = Math.min(1, this.completedVisits / this.carSpawnRampVisits);
+    return this.baseCarSpawnInterval - ramp * (this.baseCarSpawnInterval - this.minCarSpawnInterval);
+  }
+
+  getBlockingCar(car) {
+    if (!this.cars.length) return null;
+    let closest = null;
+    let minDist = Infinity;
+    for (const other of this.cars) {
+      if (other === car) continue;
+      if (other.ignoreTraffic) continue;
+      if (Math.abs(other.tileX - car.tileX) > this.carLaneTolerance) continue;
+      if (car.direction.y > 0 && other.tileY <= car.tileY) continue;
+      if (car.direction.y < 0 && other.tileY >= car.tileY) continue;
+      const dist = Math.abs(other.tileY - car.tileY);
+      if (dist < minDist) {
+        minDist = dist;
+        closest = other;
+      }
+    }
+    return minDist <= this.carFollowDistance * 2 ? closest : null;
   }
 
   drawBackground() {
@@ -854,46 +1619,95 @@ class GameWorld {
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     const bounds = this.getVisibleTileBounds();
 
-    this.drawTileLayer((tileX, tileY) => {
-      this.drawTileImage(this.terrainSprites.ground, tileX, tileY);
-    }, bounds);
+    if (this.mapData) {
+      this.drawTileLayer((tileX, tileY) => {
+        const tileType = this.getMapTileType(tileX, tileY);
+        if (tileType === 'W') {
+          this.drawTileImage(this.terrainSprites.water, tileX, tileY);
+        } else if (tileType === 'B') {
+          this.drawTileImage(this.terrainSprites.beach, tileX, tileY);
+        } else if (tileType === 'R') {
+          this.drawTileImage(this.terrainSprites.road, tileX, tileY);
+        } else if (tileType === 'P') {
+          this.drawTileImage(this.terrainSprites.path, tileX, tileY);
+        } else if (tileType === 'E') {
+          this.drawTileImage(this.terrainSprites.entry, tileX, tileY);
+        } else {
+          this.drawTileImage(this.terrainSprites.ground, tileX, tileY);
+        }
+      }, bounds);
+      return;
+    }
 
     this.drawTileLayer((tileX, tileY) => {
+      if (this.waterLaneX !== null && tileX <= this.waterLaneX) {
+        this.drawTileImage(this.terrainSprites.water, tileX, tileY);
+      } else if (this.beachLaneX !== null && tileX === this.beachLaneX) {
+        this.drawTileImage(this.terrainSprites.beach, tileX, tileY);
+      } else {
+        this.drawTileImage(this.terrainSprites.ground, tileX, tileY);
+      }
+
       if (this.pathTiles.has(this.tileKey(tileX, tileY))) {
         this.drawTileImage(this.terrainSprites.path, tileX, tileY);
       }
-    }, bounds);
 
-    this.drawTileLayer((tileX, tileY) => {
       if (this.roadTiles.has(this.tileKey(tileX, tileY))) {
         this.drawTileImage(this.terrainSprites.road, tileX, tileY);
+      }
+
+      if (tileX === this.entranceTile.x && tileY === this.entranceTile.y) {
+        this.drawTileImage(this.terrainSprites.entry, tileX, tileY);
+      } else if (this.exitTile && tileX === this.exitTile.x && tileY === this.exitTile.y) {
+        this.drawTileImage(this.terrainSprites.entry, tileX, tileY);
       }
     }, bounds);
   }
 
   drawBuildings() {
     const { ctx } = this;
-    this.buildings.forEach((building) => {
+    const buildings = [...this.buildings].sort((a, b) => {
+      const depthA = a.tileX + a.tileY + (a.tileWidth - 1) + (a.tileHeight - 1);
+      const depthB = b.tileX + b.tileY + (b.tileWidth - 1) + (b.tileHeight - 1);
+      if (depthA !== depthB) return depthA - depthB;
+      if (a.tileY !== b.tileY) return a.tileY - b.tileY;
+      return a.tileX - b.tileX;
+    });
+
+    buildings.forEach((building) => {
       const colorMap = CATEGORY_COLORS[building.category] || {};
       const color = colorMap[building.type] || CATEGORY_CONFIG[building.category]?.color || '#4f8cff';
 
-      for (let x = building.tileX; x < building.tileX + building.tileWidth; x++) {
-        for (let y = building.tileY; y < building.tileY + building.tileHeight; y++) {
-          this.drawIsoDiamond(x, y, color);
+      const baseImage = this.terrainSprites.buildingBase;
+      const minX = building.tileX;
+      const maxX = building.tileX + building.tileWidth - 1;
+      const minY = building.tileY;
+      const maxY = building.tileY + building.tileHeight - 1;
+      for (let sum = minX + minY; sum <= maxX + maxY; sum++) {
+        for (let x = minX; x <= maxX; x++) {
+          const y = sum - x;
+          if (y < minY || y > maxY) continue;
+          if (baseImage?.complete && baseImage.naturalWidth > 0) {
+            this.drawTileImage(baseImage, x, y);
+          } else {
+            this.drawIsoDiamond(x, y, color);
+          }
         }
       }
 
       ctx.fillStyle = '#222';
       const emoji = EMOJI_MAP[building.type] || '🏖️';
-      const fontSize = building.category === 'service' ? 32 : building.category === 'transport' ? 36 : 24;
+      const footprint = Math.max(building.tileWidth, building.tileHeight);
+      const fontSize = Math.round(this.getScaledTileSize() * (footprint > 1 ? 0.75 : 0.6));
       ctx.font = `${fontSize}px Arial`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      const center = this.isoToScreen(
+      const center = this.getTileScreenCenter(
         building.tileX + (building.tileWidth - 1) / 2,
         building.tileY + (building.tileHeight - 1) / 2
       );
-      ctx.fillText(emoji, center.x, center.y - 18);
+      const yOffset = this.getScaledSpriteHeight() * (footprint > 1 ? 0.45 : 0.6);
+      ctx.fillText(emoji, center.x, center.y - yOffset);
     });
   }
 
@@ -905,11 +1719,12 @@ class GameWorld {
   drawAgents() {
     const { ctx } = this;
     this.agents.forEach((agent) => {
-      ctx.font = '18px Arial';
+      const fontSize = Math.round(this.getScaledTileSize() * 0.5);
+      ctx.font = `${fontSize}px Arial`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      const screen = this.isoToScreen(agent.tileX, agent.tileY);
-      ctx.fillText(agent.emoji, screen.x, screen.y - 12);
+      const screen = this.getTileScreenCenter(agent.tileX, agent.tileY);
+      ctx.fillText(agent.emoji, screen.x, screen.y - this.getScaledSpriteHeight() * 0.5);
     });
   }
 
@@ -917,7 +1732,7 @@ class GameWorld {
     if (!this.selectedItem) return;
     const { ctx } = this;
     const { category, type } = this.selectedItem;
-    const { tileWidth, tileHeight } = this.getFootprint(category);
+    const { tileWidth, tileHeight } = this.getFootprint(this.selectedItem);
     const mouse = this.ui.mouse;
     if (!mouse) return;
 
@@ -926,13 +1741,29 @@ class GameWorld {
     const tileY = Math.round(tilePos.y);
     const colorMap = CATEGORY_COLORS[category] || {};
     const color = colorMap[type] || CATEGORY_CONFIG[category]?.color || '#4f8cff';
+    const baseImage = this.terrainSprites.buildingBase;
     ctx.save();
     ctx.globalAlpha = 0.5;
     for (let x = tileX; x < tileX + tileWidth; x++) {
       for (let y = tileY; y < tileY + tileHeight; y++) {
-        this.drawIsoDiamond(x, y, color);
+        if (baseImage?.complete && baseImage.naturalWidth > 0) {
+          this.drawTileImage(baseImage, x, y);
+        } else {
+          this.drawIsoDiamond(x, y, color);
+        }
       }
     }
+    const emoji = EMOJI_MAP[type] || '🏖️';
+    const fontSize = Math.round(this.getScaledTileSize() * 0.6);
+    ctx.fillStyle = '#222';
+    ctx.font = `${fontSize}px Arial`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const center = this.getTileScreenCenter(
+      tileX + (tileWidth - 1) / 2,
+      tileY + (tileHeight - 1) / 2
+    );
+    ctx.fillText(emoji, center.x, center.y - this.getScaledSpriteHeight() * 0.6);
     ctx.restore();
   }
 
@@ -983,7 +1814,29 @@ function applySpriteTrim(image) {
   });
 }
 
-function initGame() {
+function parseMapCsv(text) {
+  const rows = text
+    .trim()
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => line.split(',').map((cell) => cell.trim().toUpperCase()).filter(Boolean));
+  const width = rows.reduce((max, row) => Math.max(max, row.length), 0);
+  rows.forEach((row) => {
+    while (row.length < width) row.push('G');
+  });
+  return { grid: rows, width, height: rows.length };
+}
+
+async function loadMapData(url) {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to load map: ${url}`);
+  }
+  const text = await response.text();
+  return parseMapCsv(text);
+}
+
+async function initGame() {
   const canvas = document.getElementById('canvas');
   const ctx = canvas.getContext('2d');
   const carSprites = {
@@ -993,17 +1846,19 @@ function initGame() {
     motorbike: new Image(),
     truck: new Image(),
     police: new Image(),
-    ambulance: new Image()
+    ambulance: new Image(),
+    formula: new Image(),
+    delivery: new Image()
   };
   const terrainSprites = {
     ground: new Image(),
     road: new Image(),
-    path: new Image()
+    path: new Image(),
+    entry: new Image(),
+    water: new Image(),
+    beach: new Image(),
+    buildingBase: new Image()
   };
-
-  applySpriteTrim(terrainSprites.ground);
-  applySpriteTrim(terrainSprites.road);
-  applySpriteTrim(terrainSprites.path);
 
   carSprites.sedan.src = 'assets/kenney_car-kit/Previews/sedan.png';
   carSprites.suv.src = 'assets/kenney_car-kit/Previews/suv.png';
@@ -1012,33 +1867,77 @@ function initGame() {
   carSprites.truck.src = 'assets/kenney_car-kit/Previews/truck.png';
   carSprites.police.src = 'assets/kenney_car-kit/Previews/police.png';
   carSprites.ambulance.src = 'assets/kenney_car-kit/Previews/ambulance.png';
-  terrainSprites.ground.src = 'assets/kenney_nature-kit/Isometric/ground_grass_NE.png';
-  terrainSprites.road.src = 'assets/kenney_nature-kit/Isometric/bridge_center_stone_NE.png';
-  terrainSprites.path.src = 'assets/kenney_nature-kit/Isometric/ground_pathOpen_SW.png';
-  const ui = {
+  carSprites.formula.src = 'assets/kenney_car-kit/Previews/race-future.png';
+  carSprites.delivery.src = 'assets/kenney_car-kit/Previews/delivery.png';
+  terrainSprites.ground.src = 'assets/kenney_isometric-roads/png/grassWhole.png';
+  terrainSprites.road.src = 'assets/kenney_isometric-roads/png/roadEW.png';
+  terrainSprites.path.src = 'assets/kenney_isometric-roads/png/dirt.png';
+  terrainSprites.entry.src = 'assets/kenney_isometric-roads/png/exitS.png';
+  terrainSprites.water.src = 'assets/kenney_isometric-roads/png/water.png';
+  terrainSprites.beach.src = 'assets/kenney_isometric-roads/png/beachS.png';
+  terrainSprites.buildingBase.src = 'assets/kenney_isometric-roads/png/dirtDouble.png';
+    const ui = {
     money: document.getElementById('money'),
     visitors: document.getElementById('visitors'),
     pets: document.getElementById('pets'),
     active: document.getElementById('active'),
+    reviewScore: document.getElementById('reviewScore'),
+    reviewStars: document.getElementById('reviewStars'),
+    reviewFun: document.getElementById('reviewFun'),
+    reviewFood: document.getElementById('reviewFood'),
+    reviewFacilities: document.getElementById('reviewFacilities'),
+    reviewFunStars: document.getElementById('reviewFunStars'),
+    reviewFoodStars: document.getElementById('reviewFoodStars'),
+    reviewFacilitiesStars: document.getElementById('reviewFacilitiesStars'),
     message: document.getElementById('message'),
     chatMessages: document.getElementById('chatMessages'),
     bottomPanel: document.getElementById('bottomPanel'),
     mouse: null
   };
 
-  const world = new GameWorld({ canvas, ctx, ui, carSprites, terrainSprites });
+  const world = new GameWorld({ canvas, ctx, ui, carSprites, terrainSprites, mapData: null });
+
+  loadMapData('assets/maps/default.csv')
+    .then((data) => {
+      if (!data?.width || !data?.height) return;
+      world.initMapFromData(data);
+      world.updateOrigin();
+      world.setMapBoundsFromScreen();
+      world.positionCameraAtEntry(220);
+      world.hasPositionedCamera = true;
+    })
+    .catch((error) => {
+      console.error(error);
+    });
 
   const resizeCanvas = () => {
     const height = window.innerHeight - ui.bottomPanel.offsetHeight;
     canvas.width = window.innerWidth;
     canvas.height = height;
     world.updateOrigin();
+    world.setMapBoundsFromScreen();
+    if (!world.hasPositionedCamera) {
+      if (world.mapData) {
+        world.positionCameraAtEntry(220);
+      } else {
+        world.positionCameraAtTopLeft();
+      }
+      world.hasPositionedCamera = true;
+    } else {
+      world.clampCamera();
+    }
   };
   resizeCanvas();
   window.addEventListener('resize', resizeCanvas);
 
-  const items = [...document.querySelectorAll('.shopItem')].map((item) => {
+  const orderedItems = sortShopItemsByCost();
+  const items = orderedItems.map((item) => {
     const category = getCategory(item);
+    const width = parseInt(item.dataset.width, 10);
+    const height = parseInt(item.dataset.height, 10);
+    const defaultSize = category === 'service' ? 2 : 1;
+    const tileWidth = Number.isFinite(width) ? width : defaultSize;
+    const tileHeight = Number.isFinite(height) ? height : defaultSize;
     return {
       element: item,
       type: item.dataset.type,
@@ -1046,6 +1945,8 @@ function initGame() {
       price: parseFloat(item.dataset.price || 0),
       petPrice: parseFloat(item.dataset.petprice || 0),
       category,
+      tileWidth,
+      tileHeight,
       emoji: item.querySelector('.itemName')?.textContent?.trim()?.charAt(0) ?? '🏖️'
     };
   });
@@ -1061,6 +1962,14 @@ function initGame() {
       world.setSelectedItem(item);
     });
   });
+
+  const unlockAudio = () => {
+    world.initAudio();
+    window.removeEventListener('pointerdown', unlockAudio);
+    window.removeEventListener('keydown', unlockAudio);
+  };
+  window.addEventListener('pointerdown', unlockAudio);
+  window.addEventListener('keydown', unlockAudio);
 
   canvas.addEventListener('mousemove', (event) => {
     ui.mouse = { x: event.offsetX, y: event.offsetY };
@@ -1120,8 +2029,20 @@ function getCategory(item) {
   if (item.classList.contains('pet-item')) return 'pet';
   if (item.classList.contains('service-item')) return 'service';
   if (item.classList.contains('internet-item')) return 'internet';
-  if (item.classList.contains('transport-item')) return 'transport';
   return 'attraction';
+}
+
+function sortShopItemsByCost() {
+  const shop = document.getElementById('shopItems');
+  if (!shop) return [];
+  const items = [...shop.querySelectorAll('.shopItem')];
+  items.sort((a, b) => {
+    const costA = parseFloat(a.dataset.cost || '0');
+    const costB = parseFloat(b.dataset.cost || '0');
+    return costA - costB;
+  });
+  items.forEach((item) => shop.appendChild(item));
+  return items;
 }
 
 function setupTabs() {
@@ -1141,9 +2062,7 @@ function setupTabs() {
         const isPet = selected === 'pet' && item.classList.contains('pet-item');
         const isService = selected === 'service' && item.classList.contains('service-item');
         const isInternet = selected === 'internet' && item.classList.contains('internet-item');
-        const isTransport = selected === 'transport' && item.classList.contains('transport-item');
-
-        if (isAttraction || isFood || isFacility || isPet || isService || isInternet || isTransport) {
+        if (isAttraction || isFood || isFacility || isPet || isService || isInternet) {
           item.style.display = 'flex';
         } else {
           item.style.display = 'none';
@@ -1164,10 +2083,8 @@ function setupJoystick(world) {
 
   const resetKnob = () => {
     knob.style.transform = 'translate(-50%, -50%)';
-    world.keys.up = false;
-    world.keys.down = false;
-    world.keys.left = false;
-    world.keys.right = false;
+    world.joystickVector.x = 0;
+    world.joystickVector.y = 0;
   };
 
   const handleMove = (clientX, clientY) => {
@@ -1183,16 +2100,15 @@ function setupJoystick(world) {
     const knobY = Math.sin(angle) * dist;
     knob.style.transform = `translate(${knobX - knob.offsetWidth / 2}px, ${knobY - knob.offsetHeight / 2}px)`;
 
-    world.keys.left = knobX < -10;
-    world.keys.right = knobX > 10;
-    world.keys.up = knobY < -10;
-    world.keys.down = knobY > 10;
+    world.joystickVector.x = knobX / maxDistance;
+    world.joystickVector.y = knobY / maxDistance;
   };
 
   knob.addEventListener('pointerdown', (event) => {
     event.preventDefault();
     dragging = true;
     knob.setPointerCapture(event.pointerId);
+    handleMove(event.clientX, event.clientY);
   });
 
   knob.addEventListener('pointermove', (event) => {

@@ -46,6 +46,18 @@
             font-size: 14px;
             font-weight: bold;
         }
+
+        .stat.substat {
+            margin-left: 14px;
+            font-size: 12px;
+            font-weight: 500;
+            opacity: 0.9;
+        }
+
+        .subStars {
+            opacity: 0.6;
+            font-weight: 400;
+        }
         
         #message {
             position: absolute;
@@ -102,6 +114,11 @@
             border-radius: 6px;
             padding: 6px 8px;
             color: #f7f7f7;
+            transition: opacity 0.6s ease;
+        }
+
+        .chatMessage.fading {
+            opacity: 0;
         }
         
         #bottomPanel {
@@ -156,9 +173,6 @@
             background: linear-gradient(135deg, #00d2ff 0%, #3a7bd5 100%);
         }
 
-        .shopItem.transport {
-            background: linear-gradient(135deg, #fc5c7d 0%, #6a82fb 100%);
-        }
         
 .shopItem:hover {
             transform: scale(1.05);
