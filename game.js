@@ -345,7 +345,7 @@ class GameWorld {
     this.agents = [];
     this.cars = [];
     this.lastSpawn = 0;
-    this.carSpawnInterval = 3200;
+    this.carSpawnInterval = 4200;
     this.keys = { up: false, down: false, left: false, right: false };
     this.selectedItem = null;
     this.messageTimeout = null;
@@ -367,6 +367,18 @@ class GameWorld {
     this.messageTimeout = setTimeout(() => {
       this.ui.message.style.display = 'none';
     }, 1500);
+  }
+
+  logMessage(text) {
+    if (!this.ui.chatMessages) return;
+    const entry = document.createElement('div');
+    entry.className = 'chatMessage';
+    entry.textContent = text;
+    this.ui.chatMessages.prepend(entry);
+    const maxEntries = 10;
+    while (this.ui.chatMessages.children.length > maxEntries) {
+      this.ui.chatMessages.removeChild(this.ui.chatMessages.lastChild);
+    }
   }
 
   updateStats() {
@@ -465,8 +477,13 @@ class GameWorld {
   }
 
   createPassengerBatch() {
-    const visitors = Math.floor(Math.random() * 3) + 2;
-    const pets = Math.random() > 0.6 ? Math.floor(Math.random() * 2) + 1 : 0;
+    const parkLevel = Math.floor(this.buildings.length / 4);
+    const baseVisitors = Math.min(6, 1 + parkLevel);
+    const visitors = Math.max(1, baseVisitors + (Math.random() > 0.7 ? 1 : 0));
+
+    const petBuildings = this.buildings.filter((building) => building.category === 'pet').length;
+    const basePets = petBuildings > 0 ? Math.floor(petBuildings / 3) : 0;
+    const pets = Math.min(3, basePets + (Math.random() > 0.8 ? 1 : 0));
     return { visitors, pets };
   }
 
@@ -489,7 +506,7 @@ class GameWorld {
     if (revenue > 0) {
       this.money += revenue;
       const label = agent.isPet ? '🐾 Pet visit' : '🎟️ Visit';
-      this.showMessage(`${label} +$${revenue.toFixed(0)}`);
+      this.logMessage(`${label} +$${revenue.toFixed(0)}`);
     }
   }
 
@@ -519,6 +536,34 @@ class GameWorld {
           const sprite = (x + y) % (tile * 2) === 0 ? WORLD_SPRITES.grass : WORLD_SPRITES.grassAlt;
           this.spriteSheet.draw(ctx, sprite.x, sprite.y, x - this.camera.x, y - this.camera.y, tile);
         }
+      }
+
+      const pathTile = 32;
+      const pathX = this.entrance.x + this.entrance.width / 2 - pathTile * 1.5;
+      for (let y = this.entrance.y + this.entrance.height; y < this.worldBounds.bottom; y += pathTile) {
+        for (let offset = 0; offset < 3; offset++) {
+          this.spriteSheet.draw(
+            ctx,
+            WORLD_SPRITES.dirt.x,
+            WORLD_SPRITES.dirt.y,
+            pathX - this.camera.x + offset * pathTile,
+            y - this.camera.y,
+            pathTile
+          );
+        }
+      }
+
+      const fenceTile = 24;
+      const fenceY = this.roadY + 40;
+      for (let x = this.worldBounds.left; x < this.worldBounds.right; x += fenceTile) {
+        this.spriteSheet.draw(
+          ctx,
+          WORLD_SPRITES.fence.x,
+          WORLD_SPRITES.fence.y,
+          x - this.camera.x,
+          fenceY - this.camera.y,
+          fenceTile
+        );
       }
     }
 
@@ -705,7 +750,9 @@ async function initGame() {
     pets: document.getElementById('pets'),
     active: document.getElementById('active'),
     message: document.getElementById('message'),
+    chatMessages: document.getElementById('chatMessages'),
     bottomPanel: document.getElementById('bottomPanel'),
+    shopPanel: document.getElementById('shopPanel'),
     mouse: null
   };
 
@@ -713,7 +760,7 @@ async function initGame() {
   const world = new GameWorld({ canvas, ctx, ui, spriteSheet });
 
   const resizeCanvas = () => {
-    const height = window.innerHeight - ui.bottomPanel.offsetHeight;
+    const height = window.innerHeight - ui.shopPanel.offsetHeight;
     canvas.width = window.innerWidth;
     canvas.height = height;
   };
