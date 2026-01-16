@@ -9,15 +9,37 @@
     <div id="gameContainer">
         <div id="mainArea">
             <canvas id="canvas"></canvas>
-            <div id="stats">
-                <div class="stat">💰 Money: $<span id="money">500</span></div>
-                <div class="stat">👥 Visitors: <span id="visitors">0</span></div>
-                <div class="stat">🐕 Pets: <span id="pets">0</span></div>
-                <div class="stat">🎢 In Park: <span id="active">0</span></div>
-                <div class="stat">⭐ Reviews: <span id="reviewScore">0.0</span> <span id="reviewStars">☆☆☆☆☆</span></div>
-                <div class="stat substat">🎢 Fun: <span id="reviewFun">0.0</span> <span class="subStars" id="reviewFunStars">☆☆☆☆☆</span></div>
-                <div class="stat substat">🍔 Food: <span id="reviewFood">0.0</span> <span class="subStars" id="reviewFoodStars">☆☆☆☆☆</span></div>
-                <div class="stat substat">🚻 Facilities: <span id="reviewFacilities">0.0</span> <span class="subStars" id="reviewFacilitiesStars">☆☆☆☆☆</span></div>
+            <div id="leftPanel">
+                <div id="stats">
+                    <div class="stat">💰 Money: $<span id="money">500</span></div>
+                    <div class="stat">👥 Visitors: <span id="visitors">0</span></div>
+                    <div class="stat">🐕 Pets: <span id="pets">0</span></div>
+                    <div class="stat">🎢 In Park: <span id="active">0</span></div>
+                    <div class="stat reviewRow">
+                        <span class="statLabel">⭐ Reviews:</span>
+                        <span class="statValue" id="reviewScore">0.0</span>
+                        <span class="statStars" id="reviewStars">☆☆☆☆☆</span>
+                    </div>
+                    <div class="stat substat reviewRow">
+                        <span class="statLabel">🎢 Fun:</span>
+                        <span class="statValue" id="reviewFun">0.0</span>
+                        <span class="statStars subStars" id="reviewFunStars">☆☆☆☆☆</span>
+                    </div>
+                    <div class="stat substat reviewRow">
+                        <span class="statLabel">🍔 Food:</span>
+                        <span class="statValue" id="reviewFood">0.0</span>
+                        <span class="statStars subStars" id="reviewFoodStars">☆☆☆☆☆</span>
+                    </div>
+                    <div class="stat substat reviewRow">
+                        <span class="statLabel">🚻 Facilities:</span>
+                        <span class="statValue" id="reviewFacilities">0.0</span>
+                        <span class="statStars subStars" id="reviewFacilitiesStars">☆☆☆☆☆</span>
+                    </div>
+                    <button id="resetGame" type="button">Reset Game</button>
+                </div>
+                <div id="reviewPanel">
+                    <div id="reviewMessages"></div>
+                </div>
             </div>
             <div id="message"></div>
             <div id="chatPanel">
@@ -336,12 +358,6 @@
                 <div class="itemPrice">Human: $40</div>
                 <div class="itemPetPrice">Dog: $60</div>
             </div>
-                <div class="shopItem service service-item" style="display:none;" data-type="zoo" data-cost="6000" data-price="35" data-petprice="52">
-                    <div class="itemName">🦁 Zoo</div>
-                    <div class="itemCost">Build: $6000</div>
-                    <div class="itemPrice">Human: $35</div>
-                    <div class="itemPetPrice">Dog: $52</div>
-                </div>
 
                 <!-- Internet Cafe -->
                 <div class="shopItem internet internet-item" style="display:none;" data-type="basicpc" data-cost="300" data-price="5" data-petprice="8">

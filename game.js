@@ -68,8 +68,7 @@ const CATEGORY_COLORS = {
     cinema: '#2F4F4F',
     mall: '#FF1493',
     museum: '#A0522D',
-    aquarium: '#4682B4',
-    zoo: '#228B22'
+    aquarium: '#4682B4'
   },
   internet: {
     basicpc: '#4A90E2',
@@ -85,6 +84,27 @@ const CATEGORY_COLORS = {
     discord: '#7289DA',
     youtube: '#FF0000'
   }
+};
+
+const SAVE_KEY = 'waterpark.save.v1';
+
+const VISITOR_EMOJI_WEIGHTS = [
+  { emoji: '🧍', weight: 3 },
+  { emoji: '🧍‍♀️', weight: 3 }
+];
+
+const PET_EMOJI_WEIGHTS = [
+  { emoji: '🐕', weight: 1 }
+];
+
+const pickWeightedEmoji = (choices) => {
+  const total = choices.reduce((sum, item) => sum + item.weight, 0);
+  let roll = Math.random() * total;
+  for (const item of choices) {
+    roll -= item.weight;
+    if (roll <= 0) return item.emoji;
+  }
+  return choices[choices.length - 1]?.emoji ?? '🧍';
 };
 
 const EMOJI_MAP = {
@@ -138,7 +158,6 @@ const EMOJI_MAP = {
   mall: '🛍️',
   museum: '🏺',
   aquarium: '🐠',
-  zoo: '🦁',
   basicpc: '🖥️',
   gamingpc: '🎮',
   vrcafe: '🕶️',
@@ -369,6 +388,7 @@ class GameWorld {
     this.upkeepInterval = 180000;
     this.lastUpkeepTime = 0;
     this.audioReady = false;
+    this.audioInitPromise = null;
     this.sleighbellThreshold = 40;
     this.sleighbellCooldown = 20000;
     this.lastSleighbellTime = 0;
@@ -421,6 +441,10 @@ class GameWorld {
     this.mapBounds = { minX: -12, maxX: 12, minY: -12, maxY: 12 };
     this.carSprites = carSprites;
     this.terrainSprites = terrainSprites;
+    this.autosaveIntervalMs = 30000;
+    this.autosaveTimer = null;
+    this.treeDensity = 0.08;
+    this.treeTiles = new Map();
     if (this.mapData) {
       this.initMapFromData(this.mapData);
     } else {
@@ -520,6 +544,7 @@ class GameWorld {
     this.mapHeight = mapData.height;
     this.setMapBoundsFromMap();
     this.buildMapIndices();
+    this.generateTrees();
   }
 
   buildMapIndices() {
@@ -584,6 +609,25 @@ class GameWorld {
     this.pickupStop = { x: this.exitTile.x, y: this.exitTile.y };
     this.entrancePathTile = this.findClosestPathTile(this.entranceTile) || this.entranceTile;
     this.exitPathTile = this.findClosestPathTile(this.exitTile) || this.exitTile;
+  }
+
+  generateTrees() {
+    if (!this.mapData) return;
+    this.treeTiles.clear();
+    for (let row = 0; row < this.mapHeight; row++) {
+      const line = this.mapData.grid[row] || [];
+      for (let col = 0; col < this.mapWidth; col++) {
+        const tileType = line[col] || 'G';
+        if (tileType !== 'G') continue;
+        if (Math.random() > this.treeDensity) continue;
+        const tileX = this.mapBounds.minX + col;
+        const tileY = this.mapBounds.minY + row;
+        const key = this.tileKey(tileX, tileY);
+        if (this.pathTiles?.has(key) || this.roadTiles?.has(key)) continue;
+        const type = Math.random() > 0.6 ? 'tall' : 'short';
+        this.treeTiles.set(key, type);
+      }
+    }
   }
 
   getMapTileBounds() {
@@ -775,6 +819,39 @@ class GameWorld {
       image,
       screen.x - destW / 2,
       screen.y - destH / 2,
+      destW,
+      destH
+    );
+  }
+
+  drawTreeImage(image, tileX, tileY, scale) {
+    if (!image?.complete || image.naturalWidth === 0) return;
+    const screen = this.getTileScreenCenter(tileX, tileY);
+    const trim = image.trim;
+    const baseYOffset = (1 - scale) * this.getScaledSpriteHeight() * 0.25;
+    if (trim) {
+      const destW = this.getScaledTileSize() * scale;
+      const ratio = destW / trim.width;
+      const destH = trim.height * ratio;
+      this.ctx.drawImage(
+        image,
+        trim.x,
+        trim.y,
+        trim.width,
+        trim.height,
+        screen.x - destW / 2,
+        screen.y - destH / 2 + baseYOffset,
+        destW,
+        destH
+      );
+      return;
+    }
+    const destW = this.getScaledTileSize() * scale;
+    const destH = this.getScaledSpriteHeight() * scale;
+    this.ctx.drawImage(
+      image,
+      screen.x - destW / 2,
+      screen.y - destH / 2 + baseYOffset,
       destW,
       destH
     );
@@ -990,13 +1067,27 @@ class GameWorld {
     const message = document.createElement('div');
     message.className = 'chatMessage';
     message.textContent = text;
-    this.ui.chatMessages.prepend(message);
+    this.ui.chatMessages.append(message);
     setTimeout(() => {
       message.classList.add('fading');
     }, 10000);
     setTimeout(() => {
       message.remove();
     }, 11000);
+  }
+
+  addReviewMessage(text) {
+    if (!this.ui.reviewMessages) return;
+    const message = document.createElement('div');
+    message.className = 'reviewMessage';
+    message.textContent = text;
+    this.ui.reviewMessages.append(message);
+    setTimeout(() => {
+      message.classList.add('fading');
+    }, 14000);
+    setTimeout(() => {
+      message.remove();
+    }, 20000);
   }
 
   spawnBusinessStaff(tile) {
@@ -1015,102 +1106,93 @@ class GameWorld {
     this.agents.push(staff);
   }
 
-  initAudio() {
-    if (this.audioReady) return;
-    if (typeof window.initStrudel === 'function') {
-      window.initStrudel();
-      this.audioReady = true;
+  getSoundFn() {
+    if (typeof window.s === 'function') return window.s;
+    if (typeof window.sound === 'function') return window.sound;
+    if (typeof window.strudel?.s === 'function') return window.strudel.s;
+    if (typeof window.strudel?.sound === 'function') return window.strudel.sound;
+    return null;
+  }
+
+  async waitForSoundFn() {
+    const start = performance.now();
+    while (performance.now() - start < 4000) {
+      if (this.getSoundFn()) return true;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    return false;
+  }
+
+  async initAudio() {
+    if (this.audioReady) return true;
+    if (this.audioInitPromise) return this.audioInitPromise;
+    if (typeof window.initStrudel !== 'function') return false;
+
+    this.audioInitPromise = (async () => {
+      window.initStrudel({
+        prebake: async () => {
+          if (typeof window.samples === 'function') {
+            await window.samples(
+              'https://raw.githubusercontent.com/tidalcycles/Dirt-Samples/master/strudel.json'
+            );
+          }
+        }
+      });
+
+      const ready = await this.waitForSoundFn();
+      this.audioReady = ready;
+      return ready;
+    })();
+
+    const ready = await this.audioInitPromise;
+    if (!ready) this.audioInitPromise = null;
+    return ready;
+  }
+
+  playSoundPattern(name, cooldown, lastTimeKey, hushDelay) {
+    if (!this.audioReady) {
+      this.initAudio();
+      return;
+    }
+    const now = performance.now();
+    if (now - this[lastTimeKey] < cooldown) return;
+    const soundFn = this.getSoundFn();
+    if (!soundFn) return;
+    try {
+      const pattern = soundFn(name);
+      if (!pattern?.play) return;
+      pattern.play();
+      this[lastTimeKey] = now;
+      if (typeof window.hush === 'function') {
+        setTimeout(() => {
+          window.hush();
+        }, hushDelay);
+      }
+    } catch (error) {
+      console.warn('Sound playback failed', error);
+      this.audioReady = false;
+      this.audioInitPromise = null;
     }
   }
 
   playSleighbells() {
-    if (!this.audioReady) return;
-    const now = performance.now();
-    if (now - this.lastSleighbellTime < this.sleighbellCooldown) return;
-    const soundFn = window.s || window.sound;
-    if (typeof soundFn !== 'function') return;
-    const pattern = soundFn('anvil');
-    if (pattern?.play) {
-      pattern.play();
-      this.lastSleighbellTime = now;
-      setTimeout(() => {
-        if (typeof window.hush === 'function') {
-          window.hush();
-        }
-      }, 1200);
-    }
+    this.playSoundPattern('anvil', this.sleighbellCooldown, 'lastSleighbellTime', 1200);
   }
 
   playHandchimes() {
-    if (!this.audioReady) return;
-    const now = performance.now();
-    if (now - this.lastChimeTime < this.chimeCooldown) return;
-    const soundFn = window.s || window.sound;
-    if (typeof soundFn !== 'function') return;
-    const pattern = soundFn('handchimes(19)');
-    if (pattern?.play) {
-      pattern.play();
-      this.lastChimeTime = now;
-      setTimeout(() => {
-        if (typeof window.hush === 'function') {
-          window.hush();
-        }
-      }, 1200);
-    }
+    this.playSoundPattern('handchimes(19)', this.chimeCooldown, 'lastChimeTime', 1200);
   }
 
   playBillSound() {
-    if (!this.audioReady) return;
-    const now = performance.now();
-    if (now - this.lastBillSoundTime < this.billSoundCooldown) return;
-    const soundFn = window.s || window.sound;
-    if (typeof soundFn !== 'function') return;
-    const pattern = soundFn('harmonica');
-    if (pattern?.play) {
-      pattern.play();
-      this.lastBillSoundTime = now;
-      setTimeout(() => {
-        if (typeof window.hush === 'function') {
-          window.hush();
-        }
-      }, 1200);
-    }
+    this.playSoundPattern('harmonica', this.billSoundCooldown, 'lastBillSoundTime', 1200);
   }
 
   playBuildSound() {
-    if (!this.audioReady) return;
-    const now = performance.now();
-    if (now - this.lastBuildSoundTime < this.buildSoundCooldown) return;
-    const soundFn = window.s || window.sound;
-    if (typeof soundFn !== 'function') return;
-    const pattern = soundFn('ratchet');
-    if (pattern?.play) {
-      pattern.play();
-      this.lastBuildSoundTime = now;
-      setTimeout(() => {
-        if (typeof window.hush === 'function') {
-          window.hush();
-        }
-      }, 700);
-    }
+    this.playSoundPattern('ratchet', this.buildSoundCooldown, 'lastBuildSoundTime', 700);
   }
 
   playErrorSound() {
-    if (!this.audioReady) return;
-    const now = performance.now();
-    if (now - this.lastErrorSoundTime < this.errorSoundCooldown) return;
-    const soundFn = window.s || window.sound;
-    if (typeof soundFn !== 'function') return;
-    const pattern = soundFn('didgeridoo(12)');
-    if (pattern?.play) {
-      pattern.play();
-      this.lastErrorSoundTime = now;
-      setTimeout(() => {
-        if (typeof window.hush === 'function') {
-          window.hush();
-        }
-      }, 900);
-    }
+    this.playSoundPattern('didgeridoo(12)', this.errorSoundCooldown, 'lastErrorSoundTime', 900);
   }
 
   updateStats() {
@@ -1151,8 +1233,50 @@ class GameWorld {
     return `${'★'.repeat(fullStars)}${'☆'.repeat(emptyStars)}`;
   }
 
+  pickVisitorEmoji() {
+    return pickWeightedEmoji(VISITOR_EMOJI_WEIGHTS);
+  }
+
+  pickPetEmoji() {
+    return pickWeightedEmoji(PET_EMOJI_WEIGHTS);
+  }
+
   getPaidRideCount() {
     return this.buildings.filter((building) => building.price > 0 || building.petPrice > 0).length;
+  }
+
+  getParkSpendScore() {
+    if (!this.buildings.length) return 0;
+    const paidOptions = this.getPaidRideCount();
+    const paidTypes = new Set(
+      this.buildings
+        .filter((building) => building.price > 0 || building.petPrice > 0)
+        .map((building) => building.type)
+    ).size;
+    const totalSize = this.buildings.reduce((sum, building) => sum + building.tileWidth * building.tileHeight, 0);
+    const sizeScore = Math.min(1, totalSize / 80);
+    const optionScore = Math.min(1, paidOptions / 10);
+    const varietyScore = Math.min(1, paidTypes / 6);
+    let score = sizeScore * 0.5 + optionScore * 0.35 + varietyScore * 0.15;
+    if (paidOptions <= 3) {
+      score *= 0.5;
+    }
+    return Math.min(1, Math.max(0, score));
+  }
+
+  generateAgentBudget(isPet) {
+    const spendScore = this.getParkSpendScore();
+    const reviewBoost = this.calculateReviewScore() / 5;
+    const combined = Math.min(1, spendScore + reviewBoost * 0.1);
+    const maxBudget = isPet ? 70 : 120;
+    const maxBase = isPet ? 22 : 32;
+    const minBase = isPet ? 6 : 8;
+    const min = minBase + combined * 12;
+    const max = maxBase + combined * (maxBudget - maxBase);
+    const budget = Math.round(min + Math.random() * (max - min));
+    const spendFactor = 0.4 + combined * 0.35 + Math.random() * 0.15;
+    const spendLimit = Math.max(2, Math.round(budget * Math.min(0.95, spendFactor)));
+    return { budget, spendLimit };
   }
 
   getReviewCap() {
@@ -1160,6 +1284,109 @@ class GameWorld {
     const uniqueTypes = new Set(paidRides.map((building) => building.type)).size;
     const baseScore = Math.floor(Math.sqrt(paidRides.length + uniqueTypes));
     return Math.min(5, baseScore);
+  }
+
+  startAutosave() {
+    if (typeof localStorage === 'undefined') return;
+    if (this.autosaveTimer) return;
+    this.autosaveTimer = setInterval(() => this.saveGame(), this.autosaveIntervalMs);
+    window.addEventListener('beforeunload', () => this.saveGame());
+  }
+
+  saveGame() {
+    if (typeof localStorage === 'undefined') return;
+    const data = {
+      version: 1,
+      savedAt: Date.now(),
+      money: this.money,
+      totalVisitors: this.totalVisitors,
+      totalPets: this.totalPets,
+      completedVisits: this.completedVisits,
+      reviewScore: this.reviewScore,
+      reviewCount: this.reviewCount,
+      reviewScores: this.reviewScores,
+      buildings: this.buildings.map((building) => ({
+        type: building.type,
+        tileX: building.tileX,
+        tileY: building.tileY,
+        cost: building.cost,
+        price: building.price,
+        petPrice: building.petPrice,
+        category: building.category,
+        tileWidth: building.tileWidth,
+        tileHeight: building.tileHeight
+      }))
+    };
+    try {
+      localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+    } catch (error) {
+      console.warn('Autosave failed', error);
+    }
+  }
+
+  loadGame() {
+    if (typeof localStorage === 'undefined') return false;
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) return false;
+    try {
+      const data = JSON.parse(raw);
+      if (!data || data.version !== 1) return false;
+      this.money = Number.isFinite(data.money) ? data.money : this.money;
+      this.totalVisitors = Number.isFinite(data.totalVisitors) ? data.totalVisitors : this.totalVisitors;
+      this.totalPets = Number.isFinite(data.totalPets) ? data.totalPets : this.totalPets;
+      this.completedVisits = Number.isFinite(data.completedVisits) ? data.completedVisits : this.completedVisits;
+      this.reviewScore = Number.isFinite(data.reviewScore) ? data.reviewScore : this.reviewScore;
+      this.reviewCount = Number.isFinite(data.reviewCount) ? data.reviewCount : this.reviewCount;
+      if (data.reviewScores) {
+        this.reviewScores = {
+          fun: Number.isFinite(data.reviewScores.fun) ? data.reviewScores.fun : this.reviewScores.fun,
+          food: Number.isFinite(data.reviewScores.food) ? data.reviewScores.food : this.reviewScores.food,
+          facilities: Number.isFinite(data.reviewScores.facilities) ? data.reviewScores.facilities : this.reviewScores.facilities
+        };
+      }
+
+      this.buildings = Array.isArray(data.buildings)
+        ? data.buildings.map(
+            (building) =>
+              new Building({
+                type: building.type,
+                tileX: building.tileX,
+                tileY: building.tileY,
+                cost: building.cost,
+                price: building.price,
+                petPrice: building.petPrice,
+                category: building.category,
+                tileWidth: building.tileWidth,
+                tileHeight: building.tileHeight
+              })
+          )
+        : [];
+      this.buildings.forEach((building) => {
+        building.pathTile = this.findAdjacentPathTile(building);
+      });
+
+      this.agents = [];
+      this.cars = [];
+      this.activeVisitors = 0;
+      this.activePets = 0;
+
+      const now = performance.now();
+      const elapsed = Number.isFinite(data.savedAt) ? Date.now() - data.savedAt : 0;
+      const reviewLag = Math.min(Math.max(0, elapsed), this.reviewInterval - 1000);
+      const upkeepLag = Math.min(Math.max(0, elapsed), this.upkeepInterval - 1000);
+      this.lastReviewTime = now - reviewLag;
+      this.lastUpkeepTime = now - upkeepLag;
+      this.updateStats();
+      return true;
+    } catch (error) {
+      console.warn('Failed to load save', error);
+      return false;
+    }
+  }
+
+  clearSavedGame() {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.removeItem(SAVE_KEY);
   }
 
   calculateReviewScore() {
@@ -1173,10 +1400,16 @@ class GameWorld {
     let foodUnits = 0;
     let essentialUnits = 0;
     const uniqueTypes = new Set();
+    let totalSize = 0;
+    let paidOptions = 0;
 
     this.buildings.forEach((building) => {
       const size = building.tileWidth * building.tileHeight;
       uniqueTypes.add(building.type);
+      totalSize += size;
+      if (building.price > 0 || building.petPrice > 0) {
+        paidOptions += 1;
+      }
       if (building.category === 'food') {
         foodUnits += size;
       } else if (building.category === 'facility') {
@@ -1189,24 +1422,26 @@ class GameWorld {
       }
     });
 
-    const funNeeded = Math.max(1, guests / 8);
-    const foodNeeded = Math.max(1, guests / 12);
-    const essentialNeeded = Math.max(1, guests / 15);
-    const varietyNeeded = Math.max(3, guests / 10);
+    const parkScaleRaw = (totalSize / 24 + paidOptions / 8 + uniqueTypes.size / 10) / 3;
+    const parkScale = Math.min(1, Math.max(0, parkScaleRaw));
+    const funNeeded = Math.max(6, guests / 4);
+    const foodNeeded = Math.max(4, guests / 8);
+    const essentialNeeded = Math.max(3, guests / 10);
+    const varietyNeeded = Math.max(4, guests / 8);
 
-    const funScore = Math.min(1, funUnits / funNeeded);
-    const foodScore = Math.min(1, foodUnits / foodNeeded);
-    const facilitiesScore = Math.min(1, essentialUnits / essentialNeeded);
-    const varietyScore = Math.min(1, uniqueTypes.size / varietyNeeded);
+    const funScore = Math.min(1, funUnits / funNeeded) * parkScale;
+    const foodScore = Math.min(1, foodUnits / foodNeeded) * parkScale;
+    const facilitiesScore = Math.min(1, essentialUnits / essentialNeeded) * parkScale;
+    const varietyScore = Math.min(1, uniqueTypes.size / varietyNeeded) * parkScale;
 
-    const overall = funScore * 0.45 + foodScore * 0.25 + facilitiesScore * 0.2 + varietyScore * 0.1;
-    return { fun: funScore, food: foodScore, facilities: facilitiesScore, overall };
+    const overall = funScore * 0.6 + foodScore * 0.2 + facilitiesScore * 0.15 + varietyScore * 0.05;
+    return { fun: funScore, food: foodScore, facilities: facilitiesScore, overall, scale: parkScale };
   }
 
   generateReview() {
     if (!this.buildings.length) return;
     const balanceScore = this.getParkBalanceScore();
-    const noise = (Math.random() - 0.5) * 0.4;
+    const noise = (Math.random() - 0.5) * 0.35 * Math.max(0.3, balanceScore.scale ?? 0.3);
     const funReview = Math.max(0, Math.min(5, balanceScore.fun * 5 + noise));
     const foodReview = Math.max(0, Math.min(5, balanceScore.food * 5 + noise));
     const facilitiesReview = Math.max(0, Math.min(5, balanceScore.facilities * 5 + noise));
@@ -1218,6 +1453,9 @@ class GameWorld {
     };
     this.reviewScore = (this.reviewScore * this.reviewCount + overallReview) / (this.reviewCount + 1);
     this.reviewCount += 1;
+    this.addReviewMessage(
+      `Review: ${this.formatStars(overallReview)} (Fun ${funReview.toFixed(1)}, Food ${foodReview.toFixed(1)}, Facilities ${facilitiesReview.toFixed(1)})`
+    );
     this.playHandchimes();
   }
 
@@ -1348,13 +1586,13 @@ class GameWorld {
   spawnAgentsAtEntrance({ visitors, pets }) {
     const spawnTile = this.entrancePathTile || this.entranceTile;
     for (let i = 0; i < visitors; i++) {
-      const budget = Math.round(20 + Math.random() * 60 + this.reviewScore * 6);
-      const spendLimit = budget * (0.6 + Math.random() * 0.35);
+      const { budget, spendLimit } = this.generateAgentBudget(false);
       const agent = new Agent({
         tileX: spawnTile.x,
         tileY: spawnTile.y,
         isPet: false,
         speed: 0.04 + Math.random() * 0.02,
+        emoji: this.pickVisitorEmoji(),
         budget,
         spendLimit
       });
@@ -1364,13 +1602,13 @@ class GameWorld {
     this.activeVisitors += visitors;
 
     for (let i = 0; i < pets; i++) {
-      const budget = Math.round(15 + Math.random() * 45 + this.reviewScore * 4);
-      const spendLimit = budget * (0.6 + Math.random() * 0.35);
+      const { budget, spendLimit } = this.generateAgentBudget(true);
       const pet = new Agent({
         tileX: spawnTile.x,
         tileY: spawnTile.y,
         isPet: true,
         speed: 0.035 + Math.random() * 0.02,
+        emoji: this.pickPetEmoji(),
         budget,
         spendLimit
       });
@@ -1505,12 +1743,18 @@ class GameWorld {
       return { visitors: 0, pets: 0 };
     }
 
+    const hasPetService = this.buildings.some((building) => building.category === 'pet');
     const reviewScore = this.calculateReviewScore();
-    const reviewFactor = 0.2 + (reviewScore / 5) * 0.8;
-    const attractionLevel = Math.min(6, Math.max(1, Math.floor(paidRideCount / 3) + 1));
+    const reviewFactor = 0.25 + (reviewScore / 5) * 1.75;
+    const totalSize = this.buildings.reduce((sum, building) => sum + building.tileWidth * building.tileHeight, 0);
+    const attractionLevel = Math.min(10, Math.max(1, Math.floor((paidRideCount + totalSize / 3) / 3) + 1));
     const visitors = Math.max(1, Math.ceil(Math.random() * attractionLevel * reviewFactor));
-    const petChance = Math.min(0.75, 0.2 + paidRideCount * 0.03) * reviewFactor;
-    const pets = Math.random() > 1 - petChance ? Math.floor(Math.random() * Math.max(1, Math.floor(attractionLevel / 2))) : 0;
+    let pets = 0;
+    if (hasPetService && visitors > 0) {
+      const petChance = Math.min(0.85, 0.15 + paidRideCount * 0.02) * Math.min(2, reviewFactor);
+      pets = Math.random() > 1 - petChance ? Math.floor(Math.random() * Math.max(1, Math.floor(attractionLevel / 2))) : 0;
+      pets = Math.min(pets, visitors);
+    }
     return { visitors, pets };
   }
 
@@ -1592,7 +1836,9 @@ class GameWorld {
 
   getCarSpawnInterval() {
     const ramp = Math.min(1, this.completedVisits / this.carSpawnRampVisits);
-    return this.baseCarSpawnInterval - ramp * (this.baseCarSpawnInterval - this.minCarSpawnInterval);
+    const baseInterval = this.baseCarSpawnInterval - ramp * (this.baseCarSpawnInterval - this.minCarSpawnInterval);
+    const reviewBoost = 1 - (this.calculateReviewScore() / 5) * 0.45;
+    return Math.max(this.minCarSpawnInterval * 0.55, baseInterval * reviewBoost);
   }
 
   getBlockingCar(car) {
@@ -1666,15 +1912,53 @@ class GameWorld {
 
   drawBuildings() {
     const { ctx } = this;
-    const buildings = [...this.buildings].sort((a, b) => {
-      const depthA = a.tileX + a.tileY + (a.tileWidth - 1) + (a.tileHeight - 1);
-      const depthB = b.tileX + b.tileY + (b.tileWidth - 1) + (b.tileHeight - 1);
-      if (depthA !== depthB) return depthA - depthB;
-      if (a.tileY !== b.tileY) return a.tileY - b.tileY;
-      return a.tileX - b.tileX;
+    const bounds = this.getVisibleTileBounds();
+    const drawables = [];
+
+    this.buildings.forEach((building) => {
+      drawables.push({
+        kind: 'building',
+        building,
+        depth: building.tileX + building.tileY + (building.tileWidth - 1) + (building.tileHeight - 1),
+        sortX: building.tileX,
+        sortY: building.tileY
+      });
     });
 
-    buildings.forEach((building) => {
+    if (this.treeTiles.size) {
+      for (let y = bounds.minY; y <= bounds.maxY; y++) {
+        for (let x = bounds.minX; x <= bounds.maxX; x++) {
+          const treeType = this.treeTiles.get(this.tileKey(x, y));
+          if (!treeType) continue;
+          drawables.push({
+            kind: 'tree',
+            tileX: x,
+            tileY: y,
+            treeType,
+            depth: x + y,
+            sortX: x,
+            sortY: y
+          });
+        }
+      }
+    }
+
+    drawables.sort((a, b) => {
+      if (a.depth !== b.depth) return a.depth - b.depth;
+      if (a.sortY !== b.sortY) return a.sortY - b.sortY;
+      return a.sortX - b.sortX;
+    });
+
+    drawables.forEach((item) => {
+      if (item.kind === 'tree') {
+        const sprite =
+          item.treeType === 'tall' ? this.terrainSprites.treeTall : this.terrainSprites.treeShort;
+        const scale = item.treeType === 'tall' ? 0.3 : 0.2;
+        this.drawTreeImage(sprite, item.tileX, item.tileY, scale);
+        return;
+      }
+
+      const building = item.building;
       const colorMap = CATEGORY_COLORS[building.category] || {};
       const color = colorMap[building.type] || CATEGORY_CONFIG[building.category]?.color || '#4f8cff';
 
@@ -1719,12 +2003,13 @@ class GameWorld {
   drawAgents() {
     const { ctx } = this;
     this.agents.forEach((agent) => {
-      const fontSize = Math.round(this.getScaledTileSize() * 0.5);
+      const fontSize = Math.round(this.getScaledTileSize() * (agent.isPet ? 0.38 : 0.5));
       ctx.font = `${fontSize}px Arial`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       const screen = this.getTileScreenCenter(agent.tileX, agent.tileY);
-      ctx.fillText(agent.emoji, screen.x, screen.y - this.getScaledSpriteHeight() * 0.5);
+      const yOffset = this.getScaledSpriteHeight() * (agent.isPet ? 0.45 : 0.5);
+      ctx.fillText(agent.emoji, screen.x, screen.y - yOffset);
     });
   }
 
@@ -1857,7 +2142,9 @@ async function initGame() {
     entry: new Image(),
     water: new Image(),
     beach: new Image(),
-    buildingBase: new Image()
+    buildingBase: new Image(),
+    treeTall: new Image(),
+    treeShort: new Image()
   };
 
   carSprites.sedan.src = 'assets/kenney_car-kit/Previews/sedan.png';
@@ -1876,6 +2163,11 @@ async function initGame() {
   terrainSprites.water.src = 'assets/kenney_isometric-roads/png/water.png';
   terrainSprites.beach.src = 'assets/kenney_isometric-roads/png/beachS.png';
   terrainSprites.buildingBase.src = 'assets/kenney_isometric-roads/png/dirtDouble.png';
+  terrainSprites.treeTall.src = 'assets/kenney_isometric-roads/png/treeTall.png';
+  terrainSprites.treeShort.src = 'assets/kenney_isometric-roads/png/treeShort.png';
+
+  applySpriteTrim(terrainSprites.treeTall);
+  applySpriteTrim(terrainSprites.treeShort);
     const ui = {
     money: document.getElementById('money'),
     visitors: document.getElementById('visitors'),
@@ -1889,6 +2181,7 @@ async function initGame() {
     reviewFunStars: document.getElementById('reviewFunStars'),
     reviewFoodStars: document.getElementById('reviewFoodStars'),
     reviewFacilitiesStars: document.getElementById('reviewFacilitiesStars'),
+    reviewMessages: document.getElementById('reviewMessages'),
     message: document.getElementById('message'),
     chatMessages: document.getElementById('chatMessages'),
     bottomPanel: document.getElementById('bottomPanel'),
@@ -1896,6 +2189,7 @@ async function initGame() {
   };
 
   const world = new GameWorld({ canvas, ctx, ui, carSprites, terrainSprites, mapData: null });
+  void world.initAudio();
 
   loadMapData('assets/maps/default.csv')
     .then((data) => {
@@ -1905,6 +2199,7 @@ async function initGame() {
       world.setMapBoundsFromScreen();
       world.positionCameraAtEntry(220);
       world.hasPositionedCamera = true;
+      world.loadGame();
     })
     .catch((error) => {
       console.error(error);
@@ -1964,12 +2259,25 @@ async function initGame() {
   });
 
   const unlockAudio = () => {
-    world.initAudio();
-    window.removeEventListener('pointerdown', unlockAudio);
-    window.removeEventListener('keydown', unlockAudio);
+    world.initAudio().then((ready) => {
+      if (!ready) return;
+      window.removeEventListener('pointerdown', unlockAudio);
+      window.removeEventListener('keydown', unlockAudio);
+    });
   };
   window.addEventListener('pointerdown', unlockAudio);
   window.addEventListener('keydown', unlockAudio);
+
+  const resetButton = document.getElementById('resetGame');
+  if (resetButton) {
+    resetButton.addEventListener('click', () => {
+      if (!window.confirm('Reset your park? This clears the autosave.')) return;
+      world.clearSavedGame();
+      window.location.reload();
+    });
+  }
+
+  world.startAutosave();
 
   canvas.addEventListener('mousemove', (event) => {
     ui.mouse = { x: event.offsetX, y: event.offsetY };
