@@ -61,15 +61,57 @@
             z-index: 100;
             font-size: 18px;
         }
+
+        #chatPanel {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            width: 220px;
+            height: 200px;
+            background: rgba(255, 255, 255, 0.92);
+            border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .chatHeader {
+            padding: 8px 10px;
+            font-weight: bold;
+            font-size: 13px;
+            background: #667eea;
+            color: white;
+        }
+
+        #chatMessages {
+            flex: 1;
+            padding: 8px 10px;
+            overflow-y: auto;
+        }
+
+        .chatMessage {
+            font-size: 12px;
+            padding: 4px 0;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+        }
         
         #bottomPanel {
-            height: 120px;
+            height: 150px;
             background: rgba(50, 50, 50, 0.95);
             display: flex;
+            flex-direction: column;
             padding: 10px;
+            gap: 8px;
+            overflow: hidden;
+        }
+
+        #shopItems {
+            display: flex;
             gap: 10px;
             overflow-x: auto;
             overflow-y: hidden;
+            padding-bottom: 4px;
         }
         
         .shopItem {
@@ -148,7 +190,7 @@
         
         #joystick {
             position: absolute;
-            bottom: 140px;
+            bottom: 170px;
             right: 20px;
             width: 120px;
             height: 120px;
@@ -171,30 +213,26 @@
         }
 
         #tabs {
-            position: absolute;
-            top: 10px;
-            right: 10px;
-            background: rgba(255, 255, 255, 0.9);
-            padding: 5px;
-            border-radius: 8px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
             display: flex;
-            gap: 5px;
+            gap: 6px;
             flex-wrap: wrap;
-            max-width: 380px;
+            justify-content: center;
         }
 
         .tab {
-            padding: 8px 12px;
-            background: #ddd;
+            padding: 6px 10px;
+            background: rgba(255, 255, 255, 0.2);
+            color: #fff;
             border: none;
-            border-radius: 5px;
+            border-radius: 999px;
             cursor: pointer;
             font-weight: bold;
             font-size: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
         }
 
         .tab.active {
-            background: #667eea;
-            color: white;
+            background: #ffd166;
+            color: #333;
+            border-color: #ffd166;
         }

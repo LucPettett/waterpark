@@ -234,7 +234,7 @@ class GameWorld {
     this.buildings = [];
     this.agents = [];
     this.lastSpawn = 0;
-    this.spawnInterval = 2400;
+    this.spawnInterval = 3200;
     this.keys = { up: false, down: false, left: false, right: false };
     this.selectedItem = null;
     this.messageTimeout = null;
@@ -255,6 +255,21 @@ class GameWorld {
     this.messageTimeout = setTimeout(() => {
       this.ui.message.style.display = 'none';
     }, 1500);
+  }
+
+  logChat(text) {
+    if (!this.ui.chatMessages) return;
+    const entry = document.createElement('div');
+    entry.className = 'chatMessage';
+    entry.textContent = text;
+    this.ui.chatMessages.appendChild(entry);
+
+    const maxMessages = 6;
+    while (this.ui.chatMessages.children.length > maxMessages) {
+      this.ui.chatMessages.removeChild(this.ui.chatMessages.firstChild);
+    }
+
+    this.ui.chatMessages.scrollTop = this.ui.chatMessages.scrollHeight;
   }
 
   updateStats() {
@@ -327,7 +342,9 @@ class GameWorld {
     if (time - this.lastSpawn < this.spawnInterval) return;
     this.lastSpawn = time;
 
-    const visitors = Math.floor(Math.random() * 3) + 2;
+    const parkLevel = Math.floor(this.buildings.length / 4);
+    const baseVisitors = Math.max(1, Math.min(1 + parkLevel, 4));
+    const visitors = Math.max(1, baseVisitors + Math.floor(Math.random() * 2));
     for (let i = 0; i < visitors; i++) {
       const agent = new Agent({
         x: this.entrance.x + Math.random() * this.entrance.width,
@@ -340,8 +357,9 @@ class GameWorld {
     }
     this.activeVisitors += visitors;
 
-    if (Math.random() > 0.6) {
-      const pets = Math.floor(Math.random() * 2) + 1;
+    const petChance = Math.min(0.2 + parkLevel * 0.08, 0.5);
+    if (Math.random() < petChance) {
+      const pets = Math.max(1, Math.min(2, Math.floor(parkLevel / 2) + 1));
       for (let i = 0; i < pets; i++) {
         const pet = new Agent({
           x: this.entrance.x + Math.random() * this.entrance.width,
@@ -362,7 +380,7 @@ class GameWorld {
     if (revenue > 0) {
       this.money += revenue;
       const label = agent.isPet ? '🐾 Pet visit' : '🎟️ Visit';
-      this.showMessage(`${label} +$${revenue.toFixed(0)}`);
+      this.logChat(`${label} +$${revenue.toFixed(0)}`);
     }
   }
 
@@ -464,6 +482,7 @@ function initGame() {
     pets: document.getElementById('pets'),
     active: document.getElementById('active'),
     message: document.getElementById('message'),
+    chatMessages: document.getElementById('chatMessages'),
     bottomPanel: document.getElementById('bottomPanel'),
     mouse: null
   };
