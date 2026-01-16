@@ -159,74 +159,82 @@ const EMOJI_MAP = {
 };
 
 class Building {
-  constructor({ type, x, y, cost, price, petPrice, category }) {
+  constructor({ type, tileX, tileY, cost, price, petPrice, category, tileWidth = 1, tileHeight = 1 }) {
     this.type = type;
-    this.x = x;
-    this.y = y;
     this.cost = cost;
     this.price = price;
     this.petPrice = petPrice;
     this.category = category;
-    const size = CATEGORY_CONFIG[category]?.size ?? 80;
-    this.width = category === 'service' ? 120 : size;
-    this.height = category === 'service' ? 120 : size;
+    this.tileX = tileX;
+    this.tileY = tileY;
+    this.tileWidth = tileWidth;
+    this.tileHeight = tileHeight;
+    this.pathTile = null;
   }
 
-  containsPoint(x, y) {
-    return x >= this.x && x <= this.x + this.width && y >= this.y && y <= this.y + this.height;
+  occupies(tileX, tileY) {
+    return (
+      tileX >= this.tileX &&
+      tileX < this.tileX + this.tileWidth &&
+      tileY >= this.tileY &&
+      tileY < this.tileY + this.tileHeight
+    );
   }
 }
 
 class Agent {
-  constructor({ x, y, isPet, speed }) {
-    this.x = x;
-    this.y = y;
+  constructor({ tileX, tileY, isPet, speed }) {
+    this.tileX = tileX;
+    this.tileY = tileY;
     this.isPet = isPet;
     this.speed = speed;
     this.state = 'wandering';
     this.target = null;
     this.emoji = isPet ? (Math.random() > 0.5 ? '🐕' : '🐈') : '🧍';
+    this.path = [];
   }
 
-  assignTarget(target) {
+  assignPath(path, target) {
+    this.path = path ?? [];
     this.target = target;
-    this.state = target ? 'moving' : 'wandering';
+    this.state = this.path.length ? 'moving' : 'wandering';
   }
 
   update(delta, world) {
-    if (!this.target) {
-      this.assignTarget(world.pickTarget(this.isPet));
-    }
-
-    if (!this.target) {
+    if (!this.path.length) {
+      if (this.target) {
+        world.collectRevenue(this, this.target);
+        this.target = null;
+      }
+      world.assignAgentTarget(this);
       return false;
     }
 
-    const targetX = this.target.x + this.target.width / 2;
-    const targetY = this.target.y + this.target.height / 2;
-    const dx = targetX - this.x;
-    const dy = targetY - this.y;
+    const next = this.path[0];
+    const dx = next.x - this.tileX;
+    const dy = next.y - this.tileY;
     const dist = Math.hypot(dx, dy);
 
-    if (dist > 4) {
-      this.x += (dx / dist) * this.speed * delta;
-      this.y += (dy / dist) * this.speed * delta;
+    if (dist > 0.02) {
+      this.tileX += (dx / dist) * this.speed * delta;
+      this.tileY += (dy / dist) * this.speed * delta;
       return false;
     }
 
-    world.collectRevenue(this, this.target);
-    this.assignTarget(world.pickTarget(this.isPet));
+    this.tileX = next.x;
+    this.tileY = next.y;
+    this.path.shift();
     return false;
   }
 }
 
 class Car {
-  constructor({ x, y, speed, direction, stopX, role, sprite, payload, width = 70 }) {
-    this.x = x;
-    this.y = y;
+  constructor({ tileX, tileY, speed, direction, stopTile, role, sprite, payload, width = 70 }) {
+    this.tileX = tileX;
+    this.tileY = tileY;
     this.speed = speed;
     this.direction = direction;
-    this.stopX = stopX;
+    this.stopTile = stopTile;
     this.role = role;
     this.sprite = sprite;
     this.payload = payload;
@@ -244,12 +252,14 @@ class Car {
         this.state = 'departing';
       }
     } else {
-      this.x += this.speed * delta * this.direction;
+      this.tileX += this.speed * delta * this.direction.x;
+      this.tileY += this.speed * delta * this.direction.y;
       if (!this.handled) {
         const reachedStop =
-          (this.direction > 0 && this.x >= this.stopX) || (this.direction < 0 && this.x <= this.stopX);
+          (this.direction.y >= 0 && this.tileY >= this.stopTile.y) ||
+          (this.direction.y < 0 && this.tileY <= this.stopTile.y);
         if (reachedStop) {
-          this.x = this.stopX;
+          this.tileY = this.stopTile.y;
           this.state = 'stopped';
           this.stopTimer = 70;
           world.handleCarStop(this);
@@ -257,21 +267,24 @@ class Car {
       }
     }
 
-    if (this.direction > 0 && this.x - this.width > world.worldBounds.right + 200) return true;
-    if (this.direction < 0 && this.x + this.width < world.worldBounds.left - 200) return true;
+    if (this.tileY > world.roadBounds.maxY + 2) return true;
     return false;
   }
 
-  draw(ctx, camera) {
-    const drawX = this.x - camera.x;
-    const drawY = this.y - camera.y;
+  draw(ctx, world) {
+    const drawPos = world.isoToScreen(this.tileX, this.tileY);
+    const drawX = drawPos.x;
+    const drawY = drawPos.y;
 
     ctx.save();
-    if (this.direction < 0) {
-      ctx.translate(drawX, drawY);
-      ctx.scale(-1, 1);
-      ctx.translate(-drawX, -drawY);
-    }
+    const directionScreen = world.isoToScreen(
+      this.tileX + this.direction.x,
+      this.tileY + this.direction.y
+    );
+    const angle = Math.atan2(directionScreen.y - drawY, directionScreen.x - drawX);
+    ctx.translate(drawX, drawY);
+    ctx.rotate(angle);
+    ctx.translate(-drawX, -drawY);
 
     if (this.sprite?.complete && this.sprite.naturalWidth > 0) {
       ctx.drawImage(this.sprite, drawX - this.width / 2, drawY - this.height / 2, this.width, this.height);
@@ -284,11 +297,15 @@ class Car {
 }
 
 class GameWorld {
-  constructor({ canvas, ctx, ui, carSprites }) {
+  constructor({ canvas, ctx, ui, carSprites, terrainSprites }) {
     this.canvas = canvas;
     this.ctx = ctx;
     this.ui = ui;
     this.camera = { x: 0, y: 0 };
+    this.tileSize = 128;
+    this.tileHeight = 64;
+    this.tileScale = this.tileSize / 512;
+    this.origin = { x: canvas.width / 2, y: 160 };
     this.money = 500;
     this.totalVisitors = 0;
     this.totalPets = 0;
@@ -304,14 +321,190 @@ class GameWorld {
     this.keys = { up: false, down: false, left: false, right: false };
     this.selectedItem = null;
     this.messageTimeout = null;
-    this.entrance = { x: 300, y: 80, width: 80, height: 50 };
-    this.exit = { x: 520, y: 80, width: 80, height: 50 };
-    this.worldBounds = { left: -400, right: 1600, top: -200, bottom: 1200 };
+    this.entranceTile = { x: 0, y: -6 };
+    this.exitTile = { x: 0, y: -4 };
+    this.dropoffStop = { x: 2, y: -6 };
+    this.pickupStop = { x: 2, y: -4 };
+    this.roadBounds = { minY: -10, maxY: 10 };
+    this.mapBounds = { minX: -12, maxX: 12, minY: -12, maxY: 12 };
     this.carSprites = carSprites;
+    this.terrainSprites = terrainSprites;
+    this.pathTiles = this.createPathTiles();
+    this.roadTiles = this.createRoadTiles();
   }
 
   setSelectedItem(item) {
     this.selectedItem = item;
+  }
+
+  updateOrigin() {
+    this.origin.x = this.canvas.width / 2;
+    this.origin.y = 160;
+  }
+
+  tileKey(x, y) {
+    return `${x},${y}`;
+  }
+
+  createPathTiles() {
+    const tiles = new Set();
+    for (let y = -8; y <= 8; y++) {
+      tiles.add(this.tileKey(0, y));
+    }
+    for (let x = -5; x <= 5; x++) {
+      tiles.add(this.tileKey(x, 0));
+    }
+    for (let x = -3; x <= 3; x++) {
+      tiles.add(this.tileKey(x, 4));
+    }
+    return tiles;
+  }
+
+  createRoadTiles() {
+    const tiles = new Set();
+    for (let y = this.roadBounds.minY; y <= this.roadBounds.maxY; y++) {
+      tiles.add(this.tileKey(this.dropoffStop.x, y));
+    }
+    return tiles;
+  }
+
+  isoToScreen(tileX, tileY) {
+    const screenX = (tileX - tileY) * (this.tileSize / 2) + this.origin.x - this.camera.x;
+    const screenY = (tileX + tileY) * (this.tileHeight / 2) + this.origin.y - this.camera.y;
+    return { x: screenX, y: screenY };
+  }
+
+  drawTileImage(image, tileX, tileY) {
+    if (!image?.complete || image.naturalWidth === 0) return;
+    const screen = this.isoToScreen(tileX, tileY);
+    this.ctx.drawImage(
+      image,
+      screen.x - this.tileSize / 2,
+      screen.y - this.tileSize / 2,
+      this.tileSize,
+      this.tileSize
+    );
+  }
+
+  drawTileLayer(drawFn) {
+    const { minX, maxX, minY, maxY } = this.mapBounds;
+    for (let sum = minX + minY; sum <= maxX + maxY; sum++) {
+      for (let x = minX; x <= maxX; x++) {
+        const y = sum - x;
+        if (y < minY || y > maxY) continue;
+        drawFn(x, y);
+      }
+    }
+  }
+
+  drawIsoDiamond(tileX, tileY, color) {
+    const { ctx } = this;
+    const center = this.isoToScreen(tileX, tileY);
+    const halfW = this.tileSize / 2;
+    const halfH = this.tileHeight / 2;
+    ctx.beginPath();
+    ctx.moveTo(center.x, center.y - halfH);
+    ctx.lineTo(center.x + halfW, center.y);
+    ctx.lineTo(center.x, center.y + halfH);
+    ctx.lineTo(center.x - halfW, center.y);
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+
+  getFootprint(category) {
+    if (category === 'service' || category === 'transport') {
+      return { tileWidth: 2, tileHeight: 2 };
+    }
+    return { tileWidth: 1, tileHeight: 1 };
+  }
+
+  findAdjacentPathTile(building) {
+    const candidates = [];
+    for (let x = building.tileX - 1; x <= building.tileX + building.tileWidth; x++) {
+      for (let y = building.tileY - 1; y <= building.tileY + building.tileHeight; y++) {
+        const onEdge =
+          x === building.tileX - 1 ||
+          x === building.tileX + building.tileWidth ||
+          y === building.tileY - 1 ||
+          y === building.tileY + building.tileHeight;
+        if (!onEdge) continue;
+        const key = this.tileKey(x, y);
+        if (this.pathTiles.has(key)) {
+          candidates.push({ x, y });
+        }
+      }
+    }
+    if (!candidates.length) return null;
+    candidates.sort((a, b) => {
+      const distA = Math.hypot(a.x - building.tileX, a.y - building.tileY);
+      const distB = Math.hypot(b.x - building.tileX, b.y - building.tileY);
+      return distA - distB;
+    });
+    return candidates[0];
+  }
+
+  assignAgentTarget(agent) {
+    const target = this.pickTarget(agent.isPet);
+    if (!target) {
+      agent.assignPath([], null);
+      return;
+    }
+
+    const start = { x: Math.round(agent.tileX), y: Math.round(agent.tileY) };
+    const path = this.findPath(start, target.pathTile);
+    if (!path.length && (start.x !== target.pathTile.x || start.y !== target.pathTile.y)) {
+      agent.assignPath([], null);
+      return;
+    }
+    agent.assignPath(path, target.building);
+  }
+
+  findPath(start, goal) {
+    if (!start || !goal) return [];
+    const startKey = this.tileKey(start.x, start.y);
+    const goalKey = this.tileKey(goal.x, goal.y);
+    if (!this.pathTiles.has(startKey) || !this.pathTiles.has(goalKey)) return [];
+
+    const queue = [start];
+    const cameFrom = new Map();
+    cameFrom.set(startKey, null);
+
+    while (queue.length) {
+      const current = queue.shift();
+      const currentKey = this.tileKey(current.x, current.y);
+      if (currentKey === goalKey) break;
+
+      const neighbors = [
+        { x: current.x + 1, y: current.y },
+        { x: current.x - 1, y: current.y },
+        { x: current.x, y: current.y + 1 },
+        { x: current.x, y: current.y - 1 }
+      ];
+      neighbors.forEach((neighbor) => {
+        const key = this.tileKey(neighbor.x, neighbor.y);
+        if (!this.pathTiles.has(key) || cameFrom.has(key)) return;
+        cameFrom.set(key, current);
+        queue.push(neighbor);
+      });
+    }
+
+    if (!cameFrom.has(goalKey)) return [];
+
+    const path = [];
+    let current = goal;
+    while (current) {
+      const key = this.tileKey(current.x, current.y);
+      const prev = cameFrom.get(key);
+      if (prev) {
+        path.unshift({ x: current.x, y: current.y });
+      }
+      current = prev;
+    }
+    return path;
   }
 
   showMessage(text) {
@@ -352,7 +545,11 @@ class GameWorld {
   }
 
   screenToWorld(x, y) {
-    return { x: x + this.camera.x, y: y + this.camera.y };
+    const adjustedX = x + this.camera.x - this.origin.x;
+    const adjustedY = y + this.camera.y - this.origin.y;
+    const tileX = (adjustedY / (this.tileHeight / 2) + adjustedX / (this.tileSize / 2)) / 2;
+    const tileY = (adjustedY / (this.tileHeight / 2) - adjustedX / (this.tileSize / 2)) / 2;
+    return { x: tileX, y: tileY };
   }
 
   placeBuilding(worldX, worldY) {
@@ -363,25 +560,30 @@ class GameWorld {
       return;
     }
 
-    const config = CATEGORY_CONFIG[category] ?? { size: 80 };
-    const size = category === 'service' ? 120 : config.size;
+    const { tileWidth, tileHeight } = this.getFootprint(category);
+    const tileX = Math.round(worldX);
+    const tileY = Math.round(worldY);
     const building = new Building({
       type,
-      x: worldX - size / 2,
-      y: worldY - size / 2,
+      tileX,
+      tileY,
       cost,
       price,
       petPrice,
-      category
+      category,
+      tileWidth,
+      tileHeight
     });
 
     const overlaps = this.buildings.some((other) => {
-      return !(
-        building.x + building.width < other.x ||
-        building.x > other.x + other.width ||
-        building.y + building.height < other.y ||
-        building.y > other.y + other.height
-      );
+      for (let x = building.tileX; x < building.tileX + building.tileWidth; x++) {
+        for (let y = building.tileY; y < building.tileY + building.tileHeight; y++) {
+          if (other.occupies(x, y)) {
+            return true;
+          }
+        }
+      }
+      return false;
     });
 
     if (overlaps) {
@@ -389,7 +591,23 @@ class GameWorld {
       return;
     }
 
+    for (let x = building.tileX; x < building.tileX + building.tileWidth; x++) {
+      for (let y = building.tileY; y < building.tileY + building.tileHeight; y++) {
+        if (this.pathTiles.has(this.tileKey(x, y))) {
+          this.showMessage('Cannot build on a path!');
+          return;
+        }
+      }
+    }
+
+    const adjacentPath = this.findAdjacentPathTile(building);
+    if (!adjacentPath) {
+      this.showMessage('Buildings must be placed next to a path!');
+      return;
+    }
+
     this.money -= cost;
+    building.pathTile = adjacentPath;
     this.buildings.push(building);
     this.showMessage(`Built ${type}!`);
   }
@@ -399,16 +617,17 @@ class GameWorld {
       return isPet ? building.petPrice > 0 : building.price > 0;
     });
     if (!eligible.length) return null;
-    return eligible[Math.floor(Math.random() * eligible.length)];
+    const building = eligible[Math.floor(Math.random() * eligible.length)];
+    return { building, pathTile: building.pathTile };
   }
 
   spawnAgentsAtEntrance({ visitors, pets }) {
     for (let i = 0; i < visitors; i++) {
       const agent = new Agent({
-        x: this.entrance.x + Math.random() * this.entrance.width,
-        y: this.entrance.y + this.entrance.height + Math.random() * 20,
+        tileX: this.entranceTile.x,
+        tileY: this.entranceTile.y,
         isPet: false,
-        speed: 0.8 + Math.random() * 0.5
+        speed: 0.04 + Math.random() * 0.02
       });
       this.agents.push(agent);
       this.totalVisitors += 1;
@@ -417,10 +636,10 @@ class GameWorld {
 
     for (let i = 0; i < pets; i++) {
       const pet = new Agent({
-        x: this.entrance.x + Math.random() * this.entrance.width,
-        y: this.entrance.y + this.entrance.height + Math.random() * 20,
+        tileX: this.entranceTile.x,
+        tileY: this.entranceTile.y,
         isPet: true,
-        speed: 0.7 + Math.random() * 0.4
+        speed: 0.035 + Math.random() * 0.02
       });
       this.agents.push(pet);
       this.totalPets += 1;
@@ -435,16 +654,16 @@ class GameWorld {
     const spawnPickup = this.activeVisitors + this.activePets > 0 && Math.random() > 0.65;
     const role = spawnPickup ? 'pickup' : 'dropoff';
     const { sprite, width } = this.pickRandomCarSprite();
-    const speed = 1.8 + Math.random() * 0.6;
+    const speed = 0.05 + Math.random() * 0.02;
 
     if (role === 'dropoff') {
       const payload = this.createArrivalPayload();
       const car = new Car({
-        x: this.worldBounds.left - 150,
-        y: 68,
+        tileX: this.dropoffStop.x,
+        tileY: this.roadBounds.minY - 2,
         speed,
-        direction: 1,
-        stopX: this.entrance.x + this.entrance.width / 2,
+        direction: { x: 0, y: 1 },
+        stopTile: this.dropoffStop,
         role,
         sprite,
         payload,
@@ -456,11 +675,11 @@ class GameWorld {
 
     const pickupCount = Math.min(this.activeVisitors + this.activePets, Math.floor(Math.random() * 3) + 1);
     const car = new Car({
-      x: this.worldBounds.right + 150,
-      y: 58,
+      tileX: this.pickupStop.x,
+      tileY: this.roadBounds.minY - 2,
       speed,
-      direction: -1,
-      stopX: this.exit.x + this.exit.width / 2,
+      direction: { x: 0, y: 1 },
+      stopTile: this.pickupStop,
       role,
       sprite,
       payload: { pickupCount },
@@ -510,13 +729,10 @@ class GameWorld {
 
   pickupAgentsAtExit(count) {
     if (!count || this.agents.length === 0) return;
-    const exitCenter = {
-      x: this.exit.x + this.exit.width / 2,
-      y: this.exit.y + this.exit.height / 2
-    };
+    const exitCenter = this.exitTile;
     const sortedAgents = [...this.agents].sort((a, b) => {
-      const distA = Math.hypot(a.x - exitCenter.x, a.y - exitCenter.y);
-      const distB = Math.hypot(b.x - exitCenter.x, b.y - exitCenter.y);
+      const distA = Math.hypot(a.tileX - exitCenter.x, a.tileY - exitCenter.y);
+      const distB = Math.hypot(b.tileX - exitCenter.x, b.tileY - exitCenter.y);
       return distA - distB;
     });
 
@@ -552,24 +768,23 @@ class GameWorld {
 
   drawBackground() {
     const { ctx } = this;
-    ctx.fillStyle = '#87CEEB';
-    ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
-    ctx.fillStyle = '#90EE90';
-    ctx.fillRect(0, this.canvas.height * 0.3, this.canvas.width, this.canvas.height);
+    this.drawTileLayer((tileX, tileY) => {
+      this.drawTileImage(this.terrainSprites.ground, tileX, tileY);
+    });
 
-    ctx.fillStyle = '#6b4f2a';
-    const roadY = 50 - this.camera.y;
-    ctx.fillRect(-this.camera.x, roadY, this.canvas.width + this.camera.x + 400, 40);
+    this.drawTileLayer((tileX, tileY) => {
+      if (this.pathTiles.has(this.tileKey(tileX, tileY))) {
+        this.drawTileImage(this.terrainSprites.path, tileX, tileY);
+      }
+    });
 
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(this.entrance.x - this.camera.x, this.entrance.y - this.camera.y, this.entrance.width, this.entrance.height);
-    ctx.fillRect(this.exit.x - this.camera.x, this.exit.y - this.camera.y, this.exit.width, this.exit.height);
-
-    ctx.fillStyle = '#333';
-    ctx.font = 'bold 14px Arial';
-    ctx.fillText('Entrance', this.entrance.x - this.camera.x, this.entrance.y - this.camera.y - 8);
-    ctx.fillText('Exit', this.exit.x - this.camera.x, this.exit.y - this.camera.y - 8);
+    this.drawTileLayer((tileX, tileY) => {
+      if (this.roadTiles.has(this.tileKey(tileX, tileY))) {
+        this.drawTileImage(this.terrainSprites.road, tileX, tileY);
+      }
+    });
   }
 
   drawBuildings() {
@@ -577,28 +792,30 @@ class GameWorld {
     this.buildings.forEach((building) => {
       const colorMap = CATEGORY_COLORS[building.category] || {};
       const color = colorMap[building.type] || CATEGORY_CONFIG[building.category]?.color || '#4f8cff';
-      const x = building.x - this.camera.x;
-      const y = building.y - this.camera.y;
 
-      ctx.fillStyle = color;
-      ctx.fillRect(x, y, building.width, building.height);
-      ctx.strokeStyle = '#fff';
-      ctx.lineWidth = building.category === 'service' || building.category === 'transport' ? 3 : 2;
-      ctx.strokeRect(x, y, building.width, building.height);
+      for (let x = building.tileX; x < building.tileX + building.tileWidth; x++) {
+        for (let y = building.tileY; y < building.tileY + building.tileHeight; y++) {
+          this.drawIsoDiamond(x, y, color);
+        }
+      }
 
       ctx.fillStyle = '#222';
       const emoji = EMOJI_MAP[building.type] || '🏖️';
-      const fontSize = building.category === 'service' ? 36 : building.category === 'transport' ? 44 : 28;
+      const fontSize = building.category === 'service' ? 32 : building.category === 'transport' ? 36 : 24;
       ctx.font = `${fontSize}px Arial`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(emoji, x + building.width / 2, y + building.height / 2);
+      const center = this.isoToScreen(
+        building.tileX + (building.tileWidth - 1) / 2,
+        building.tileY + (building.tileHeight - 1) / 2
+      );
+      ctx.fillText(emoji, center.x, center.y - 18);
     });
   }
 
   drawCars() {
     const { ctx } = this;
-    this.cars.forEach((car) => car.draw(ctx, this.camera));
+    this.cars.forEach((car) => car.draw(ctx, this));
   }
 
   drawAgents() {
@@ -607,7 +824,8 @@ class GameWorld {
       ctx.font = '18px Arial';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(agent.emoji, agent.x - this.camera.x, agent.y - this.camera.y);
+      const screen = this.isoToScreen(agent.tileX, agent.tileY);
+      ctx.fillText(agent.emoji, screen.x, screen.y - 12);
     });
   }
 
@@ -615,17 +833,22 @@ class GameWorld {
     if (!this.selectedItem) return;
     const { ctx } = this;
     const { category, type } = this.selectedItem;
-    const size = CATEGORY_CONFIG[category]?.size ?? 80;
-    const ghostSize = category === 'service' ? 120 : size;
+    const { tileWidth, tileHeight } = this.getFootprint(category);
     const mouse = this.ui.mouse;
     if (!mouse) return;
 
+    const tilePos = this.screenToWorld(mouse.x, mouse.y);
+    const tileX = Math.round(tilePos.x);
+    const tileY = Math.round(tilePos.y);
     const colorMap = CATEGORY_COLORS[category] || {};
     const color = colorMap[type] || CATEGORY_CONFIG[category]?.color || '#4f8cff';
     ctx.save();
     ctx.globalAlpha = 0.5;
-    ctx.fillStyle = color;
-    ctx.fillRect(mouse.x - ghostSize / 2, mouse.y - ghostSize / 2, ghostSize, ghostSize);
+    for (let x = tileX; x < tileX + tileWidth; x++) {
+      for (let y = tileY; y < tileY + tileHeight; y++) {
+        this.drawIsoDiamond(x, y, color);
+      }
+    }
     ctx.restore();
   }
 
@@ -650,6 +873,11 @@ function initGame() {
     police: new Image(),
     ambulance: new Image()
   };
+  const terrainSprites = {
+    ground: new Image(),
+    road: new Image(),
+    path: new Image()
+  };
 
   carSprites.sedan.src = 'assets/kenney_car-kit/Previews/sedan.png';
   carSprites.suv.src = 'assets/kenney_car-kit/Previews/suv.png';
@@ -658,6 +886,9 @@ function initGame() {
   carSprites.truck.src = 'assets/kenney_car-kit/Previews/truck.png';
   carSprites.police.src = 'assets/kenney_car-kit/Previews/police.png';
   carSprites.ambulance.src = 'assets/kenney_car-kit/Previews/ambulance.png';
+  terrainSprites.ground.src = 'assets/kenney_nature-kit/Isometric/ground_grass_NW.png';
+  terrainSprites.road.src = 'assets/kenney_nature-kit/Isometric/bridge_center_stone_SW.png';
+  terrainSprites.path.src = 'assets/kenney_nature-kit/Isometric/ground_pathOpen_SW.png';
   const ui = {
     money: document.getElementById('money'),
     visitors: document.getElementById('visitors'),
@@ -669,12 +900,13 @@ function initGame() {
     mouse: null
   };
 
-  const world = new GameWorld({ canvas, ctx, ui, carSprites });
+  const world = new GameWorld({ canvas, ctx, ui, carSprites, terrainSprites });
 
   const resizeCanvas = () => {
     const height = window.innerHeight - ui.bottomPanel.offsetHeight;
     canvas.width = window.innerWidth;
     canvas.height = height;
+    world.updateOrigin();
   };
   resizeCanvas();
   window.addEventListener('resize', resizeCanvas);
