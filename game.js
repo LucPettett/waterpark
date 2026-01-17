@@ -169,7 +169,9 @@ const EMOJI_MAP = {
   cybercafe: '💻',
   coding: '🧑‍💻',
   discord: '💬',
-  youtube: '▶️'
+  youtube: '▶️',
+  path: '🟫',
+  bulldoze: '🧹'
 };
 
 class Building {
@@ -649,6 +651,15 @@ class GameWorld {
     return line[col] || 'G';
   }
 
+  setMapTileType(tileX, tileY, type) {
+    if (!this.mapData) return;
+    const row = tileY - this.mapBounds.minY;
+    const col = tileX - this.mapBounds.minX;
+    const line = this.mapData.grid[row];
+    if (!line || col < 0 || col >= line.length) return;
+    line[col] = type;
+  }
+
   positionCameraAtTopLeft() {
     const bounds = this.getMapTileBounds();
     if (!bounds) return;
@@ -696,6 +707,33 @@ class GameWorld {
 
   tileKey(x, y) {
     return `${x},${y}`;
+  }
+
+  getBuildingAtTile(tileX, tileY) {
+    return this.buildings.find((building) => building.occupies(tileX, tileY)) ?? null;
+  }
+
+  isGrassTile(tileX, tileY) {
+    if (!this.mapData) {
+      const key = this.tileKey(tileX, tileY);
+      return !this.pathTiles.has(key) && !this.roadTiles?.has(key);
+    }
+    return this.getMapTileType(tileX, tileY) === 'G';
+  }
+
+  addPathTile(tileX, tileY) {
+    const key = this.tileKey(tileX, tileY);
+    const tileType = this.getMapTileType(tileX, tileY);
+    if (this.mapData && tileType === null) return false;
+    if (tileType && tileType !== 'G' && tileType !== 'P') return false;
+    this.pathTiles.add(key);
+    if (this.mapData) {
+      this.setMapTileType(tileX, tileY, 'P');
+    }
+    if (this.treeTiles) {
+      this.treeTiles.delete(key);
+    }
+    return true;
   }
 
   createPathTiles() {
@@ -1305,6 +1343,7 @@ class GameWorld {
       reviewScore: this.reviewScore,
       reviewCount: this.reviewCount,
       reviewScores: this.reviewScores,
+      pathTiles: this.mapData ? [...this.pathTiles] : [],
       buildings: this.buildings.map((building) => ({
         type: building.type,
         tileX: building.tileX,
@@ -1361,6 +1400,15 @@ class GameWorld {
               })
           )
         : [];
+
+      if (Array.isArray(data.pathTiles) && this.mapData) {
+        data.pathTiles.forEach((key) => {
+          if (typeof key !== 'string') return;
+          const [x, y] = key.split(',').map(Number);
+          if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+          this.addPathTile(x, y);
+        });
+      }
       this.buildings.forEach((building) => {
         building.pathTile = this.findAdjacentPathTile(building);
       });
@@ -1510,6 +1558,16 @@ class GameWorld {
   placeBuilding(worldX, worldY) {
     if (!this.selectedItem) return;
     const { type, cost, price, petPrice, category } = this.selectedItem;
+    const tileX = Math.round(worldX);
+    const tileY = Math.round(worldY);
+    if (type === 'path') {
+      this.placePathTile(tileX, tileY, cost);
+      return;
+    }
+    if (type === 'bulldoze') {
+      this.removeAttraction(tileX, tileY, cost);
+      return;
+    }
     if (this.money < cost) {
       this.showMessage('Not enough money!');
       this.playErrorSound();
@@ -1517,8 +1575,6 @@ class GameWorld {
     }
 
     const { tileWidth, tileHeight } = this.getFootprint(this.selectedItem);
-    const tileX = Math.round(worldX);
-    const tileY = Math.round(worldY);
     const building = new Building({
       type,
       tileX,
@@ -1569,6 +1625,74 @@ class GameWorld {
     building.pathTile = adjacentPath;
     this.buildings.push(building);
     this.showMessage(`Built ${type}!`);
+    this.playBuildSound();
+  }
+
+  placePathTile(tileX, tileY, cost) {
+    if (this.money < cost) {
+      this.showMessage('Not enough money!');
+      this.playErrorSound();
+      return;
+    }
+
+    const key = this.tileKey(tileX, tileY);
+    if (this.pathTiles.has(key)) {
+      this.showMessage('There is already a path here!');
+      this.playErrorSound();
+      return;
+    }
+
+    if (!this.isGrassTile(tileX, tileY)) {
+      this.showMessage('Paths can only be built on green grass!');
+      this.playErrorSound();
+      return;
+    }
+
+    if (this.getBuildingAtTile(tileX, tileY)) {
+      this.showMessage('Cannot build on an existing attraction!');
+      this.playErrorSound();
+      return;
+    }
+
+    if (!this.addPathTile(tileX, tileY)) {
+      this.showMessage('Cannot build a path here!');
+      this.playErrorSound();
+      return;
+    }
+
+    this.money -= cost;
+    this.showMessage('Built a path!');
+    this.playBuildSound();
+  }
+
+  removeAttraction(tileX, tileY, cost) {
+    const building = this.getBuildingAtTile(tileX, tileY);
+    if (!building) {
+      this.showMessage('No attraction to remove!');
+      this.playErrorSound();
+      return;
+    }
+
+    if (building.category !== 'attraction') {
+      this.showMessage('Only attractions can be removed!');
+      this.playErrorSound();
+      return;
+    }
+
+    if (this.money < cost) {
+      this.showMessage('Not enough money!');
+      this.playErrorSound();
+      return;
+    }
+
+    this.money -= cost;
+    this.buildings = this.buildings.filter((entry) => entry !== building);
+    this.agents.forEach((agent) => {
+      if (agent.target === building) {
+        agent.assignPath([], null);
+      }
+    });
+    this.showMessage(`Removed ${building.type}!`);
     this.playBuildSound();
   }
 
@@ -2024,6 +2148,40 @@ class GameWorld {
     const tilePos = this.screenToWorld(mouse.x, mouse.y);
     const tileX = Math.round(tilePos.x);
     const tileY = Math.round(tilePos.y);
+    if (type === 'path') {
+      ctx.save();
+      ctx.globalAlpha = 0.6;
+      for (let x = tileX; x < tileX + tileWidth; x++) {
+        for (let y = tileY; y < tileY + tileHeight; y++) {
+          if (this.terrainSprites.path?.complete && this.terrainSprites.path.naturalWidth > 0) {
+            this.drawTileImage(this.terrainSprites.path, x, y);
+          } else {
+            this.drawIsoDiamond(x, y, '#b58a5a');
+          }
+        }
+      }
+      ctx.restore();
+      return;
+    }
+
+    if (type === 'bulldoze') {
+      ctx.save();
+      ctx.globalAlpha = 0.55;
+      for (let x = tileX; x < tileX + tileWidth; x++) {
+        for (let y = tileY; y < tileY + tileHeight; y++) {
+          this.drawIsoDiamond(x, y, '#c0392b');
+        }
+      }
+      const fontSize = Math.round(this.getScaledTileSize() * 0.6);
+      ctx.fillStyle = '#fff';
+      ctx.font = `${fontSize}px Arial`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const center = this.getTileScreenCenter(tileX, tileY);
+      ctx.fillText(EMOJI_MAP.bulldoze || '🧹', center.x, center.y - this.getScaledSpriteHeight() * 0.6);
+      ctx.restore();
+      return;
+    }
     const colorMap = CATEGORY_COLORS[category] || {};
     const color = colorMap[type] || CATEGORY_CONFIG[category]?.color || '#4f8cff';
     const baseImage = this.terrainSprites.buildingBase;
